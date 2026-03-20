@@ -4,6 +4,7 @@ import { Plus, Search, BookOpen, Edit, ChevronRight } from 'lucide-react'
 import { useLedgers, useLedgerGroups, useCreateLedger, useUpdateLedger } from '../../hooks/api.hooks'
 import { formatINR } from '../../lib/india'
 import { Button, Input, Select, Badge, EmptyState, Spinner, PageHeader } from '../../components/ui'
+import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
 import { cn } from '../../components/ui/utils'
 
 // Nature colors

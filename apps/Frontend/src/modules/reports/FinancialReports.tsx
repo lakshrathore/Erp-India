@@ -18,6 +18,7 @@ export function BalanceSheetPage() {
       const { data } = await api.get('/accounting/balance-sheet', { params: { fy } })
       return data.data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const groupBy = (arr: any[], key: string) =>
@@ -110,6 +111,7 @@ export function ProfitLossPage() {
       const { data } = await api.get('/accounting/profit-loss', { params: { fy } })
       return data.data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   return (
@@ -209,6 +211,7 @@ export function TrialBalancePage() {
       const { data } = await api.get('/accounting/trial-balance', { params: { fy } })
       return data.data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   return (

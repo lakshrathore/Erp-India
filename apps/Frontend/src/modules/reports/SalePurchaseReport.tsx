@@ -37,6 +37,7 @@ function SalePurchaseReport({ voucherType, title, icon }: ReportPageProps) {
       const { data } = await api.get('/billing/vouchers', { params })
       return data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const vouchers: any[] = data?.data || []

@@ -4,6 +4,7 @@ import { useItemCategories, useCreateItemCategory } from '../../hooks/api.hooks'
 import { Button, Input, Select, Badge, PageHeader, Card, CardContent, EmptyState, Spinner } from '../../components/ui'
 import { extractError } from '../../lib/api'
 import { api } from '../../lib/api'
+import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface Attribute {
@@ -128,6 +129,7 @@ export default function ItemCategoriesPage() {
   const createCategory = useCreateItemCategory()
 
   const [showForm, setShowForm] = useState(false)
+  const [editCatId, setEditCatId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [trackBatch, setTrackBatch] = useState(false)
   const [trackExpiry, setTrackExpiry] = useState(false)
@@ -165,7 +167,9 @@ export default function ItemCategoriesPage() {
     try {
       await createCategory.mutateAsync({ name, trackBatch, trackExpiry, attributes })
       setShowForm(false)
-      setName(''); setTrackBatch(false); setTrackExpiry(false); setAttributes([])
+      setEditCatId(null)
+      setName('')
+      qc.invalidateQueries({ queryKey: ['item-categories'] }); setTrackBatch(false); setTrackExpiry(false); setAttributes([])
     } catch (e) {
       setSaveError(extractError(e))
     }
@@ -308,6 +312,25 @@ export default function ItemCategoriesPage() {
                   ) : (
                     <p className="text-xs text-muted-foreground italic">No dynamic attributes</p>
                   )}
+                  {/* Actions */}
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+                    <button
+                      className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium"
+                      onClick={() => {
+                        setEditCatId(cat.id)
+                        setShowForm(true)
+                      }}
+                    >
+                      <Edit size={11} /> Edit
+                    </button>
+                    <SafeDeleteButton
+                      entityType="item-category"
+                      entityId={cat.id}
+                      entityName={cat.name}
+                      onDeleted={() => qc.invalidateQueries({ queryKey: ['item-categories'] })}
+                      size="icon-sm"
+                    />
+                  </div>
                 </CardContent>
               </Card>
             )

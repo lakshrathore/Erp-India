@@ -25,6 +25,7 @@ export default function OverdueReportPage() {
     queryFn: async () => {
       const { data } = await api.get('/billing/outstanding', {
         params: { type, partyId: partyId || undefined },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
       })
       return data.data
     },

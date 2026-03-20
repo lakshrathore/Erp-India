@@ -18,6 +18,7 @@ export function DayBookPage() {
     queryFn: async () => {
       const { data } = await api.get('/billing/vouchers', {
         params: { from: date, to: date, limit: 500, status: 'POSTED' },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
       })
       return data
     },
@@ -67,6 +68,7 @@ function RegisterPage({ voucherType, title }: { voucherType: string; title: stri
     queryFn: async () => {
       const { data } = await api.get('/billing/vouchers', {
         params: { voucherType, from, to, limit: 500, status: 'POSTED' },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
       })
       return data
     },
@@ -144,6 +146,7 @@ function BookPage({ ledgerName, title }: { ledgerName: string; title: string }) 
     queryFn: async () => {
       const { data } = await api.get('/accounting/ledger-statement', {
         params: { ledgerId: activeLedgerId, from, to },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
       })
       return data.data
     },

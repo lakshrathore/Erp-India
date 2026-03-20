@@ -4,6 +4,7 @@ import { Plus, Search, Package, Edit, Tag } from 'lucide-react'
 import { useItems, useItemCategories } from '../../hooks/api.hooks'
 import { formatINR } from '../../lib/india'
 import { Button, Badge, EmptyState, Spinner, PageHeader, Select } from '../../components/ui'
+import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
 
 export default function ItemsPage() {
   const navigate = useNavigate()

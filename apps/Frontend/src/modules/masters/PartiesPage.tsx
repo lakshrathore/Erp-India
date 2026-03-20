@@ -6,6 +6,7 @@ import { formatINR, formatDate } from '../../lib/india'
 import {
   Button, Badge, EmptyState, Spinner, PageHeader, Input, Select
 } from '../../components/ui'
+import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
 import { cn } from '../../components/ui/utils'
 
 const TYPE_OPTS = [

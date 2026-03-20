@@ -38,6 +38,7 @@ export default function AttendancePage() {
   const { data: empData, isLoading: empLoading } = useQuery({
     queryKey: ['employees', 'ACTIVE'],
     queryFn: async () => { const { data } = await api.get('/payroll/employees', { params: { status: 'ACTIVE', limit: 200 } }); return data.data },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
   const employees: any[] = empData || []
 
@@ -56,6 +57,7 @@ export default function AttendancePage() {
         setInitialized(true)
       }
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   } as any)
 
   const getStatus = (empId: string, day: number): AttStatus => {

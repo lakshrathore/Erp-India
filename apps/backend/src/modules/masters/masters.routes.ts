@@ -199,11 +199,12 @@ const itemSchema = z.object({
 })
 
 const variantSchema = z.object({
-  code: z.string().optional(),
-  barcode: z.string().optional(),
+  code: z.string().optional().nullable(),
+  barcode: z.string().optional().nullable(),
   attributeValues: z.record(z.any()).default({}),
-  purchaseRate: z.number().default(0),
-  saleRate: z.number().default(0),
+  purchaseRate: z.coerce.number().default(0),
+  saleRate: z.coerce.number().default(0),
+  isActive: z.boolean().default(true),
 })
 
 mastersRouter.get('/items', async (req: Request, res: Response) => {
@@ -426,3 +427,203 @@ mastersRouter.post('/number-series', async (req: Request, res: Response) => {
   sendSuccess(res, series, 'Series saved', 201)
 })
 
+
+
+// ═══════════════════════════════════════════════════════════════
+// SAFE DELETE ROUTES — Check usage before deleting
+// ═══════════════════════════════════════════════════════════════
+
+// ─── DELETE /item-categories/:id ────────────────────────────────────────────
+mastersRouter.delete('/item-categories/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  // Check if any items use this category
+  const itemCount = await prisma.item.count({
+    where: { categoryId: id, isActive: true, companyId: req.companyId },
+  })
+  if (itemCount > 0) {
+    throw new BadRequestError(
+      `Cannot delete: ${itemCount} item(s) are using this category. Remove or reassign items first.`
+    )
+  }
+
+  await prisma.itemCategory.update({ where: { id }, data: { isActive: false } })
+  sendSuccess(res, null, 'Category deleted')
+})
+
+// ─── DELETE /items/:id ──────────────────────────────────────────────────────
+mastersRouter.delete('/items/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  // Check voucher usage
+  const voucherCount = await prisma.voucherItem.count({ where: { itemId: id } })
+  if (voucherCount > 0) {
+    throw new BadRequestError(
+      `Cannot delete: This item appears in ${voucherCount} transaction(s). Deactivate it instead.`
+    )
+  }
+
+  // Check stock
+  const stockBatches = await prisma.inventoryBatch.count({
+    where: { itemId: id, remainingQty: { gt: 0 } },
+  })
+  if (stockBatches > 0) {
+    throw new BadRequestError(
+      `Cannot delete: Item has stock remaining. Clear stock first.`
+    )
+  }
+
+  await prisma.item.update({ where: { id }, data: { isActive: false } })
+  sendSuccess(res, null, 'Item deactivated')
+})
+
+// ─── DELETE /ledgers/:id ────────────────────────────────────────────────────
+mastersRouter.delete('/ledgers/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  const ledger = await prisma.ledger.findUnique({ where: { id } })
+  if (!ledger) throw new NotFoundError('Ledger')
+
+  if (ledger.isSystem) {
+    throw new BadRequestError('Cannot delete system ledger. These are required for accounting.')
+  }
+
+  // Check voucher usage
+  const voucherCount = await prisma.voucherLedger.count({ where: { ledgerId: id } })
+  if (voucherCount > 0) {
+    throw new BadRequestError(
+      `Cannot delete: This ledger has ${voucherCount} transaction entries. Deactivate it instead.`
+    )
+  }
+
+  // Check if party ledger
+  const partyCount = await prisma.party.count({ where: { ledgerId: id, isActive: true } })
+  if (partyCount > 0) {
+    throw new BadRequestError(`Cannot delete: Linked to ${partyCount} party/parties.`)
+  }
+
+  await prisma.ledger.update({ where: { id }, data: { isActive: false } })
+  sendSuccess(res, null, 'Ledger deactivated')
+})
+
+// ─── DELETE /ledger-groups/:id ──────────────────────────────────────────────
+mastersRouter.delete('/ledger-groups/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  const group = await prisma.ledgerGroup.findUnique({ where: { id } })
+  if (!group) throw new NotFoundError('Ledger Group')
+  if (group.isSystem) {
+    throw new BadRequestError('Cannot delete system ledger group.')
+  }
+
+  const ledgerCount = await prisma.ledger.count({ where: { groupId: id, isActive: true } })
+  if (ledgerCount > 0) {
+    throw new BadRequestError(`Cannot delete: ${ledgerCount} ledger(s) are in this group.`)
+  }
+
+  const childGroupCount = await prisma.ledgerGroup.count({ where: { parentId: id } })
+  if (childGroupCount > 0) {
+    throw new BadRequestError(`Cannot delete: ${childGroupCount} sub-group(s) exist under this group.`)
+  }
+
+  await prisma.ledgerGroup.delete({ where: { id } })
+  sendSuccess(res, null, 'Ledger group deleted')
+})
+
+// ─── DELETE /godowns/:id ────────────────────────────────────────────────────
+mastersRouter.delete('/godowns/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  const stockCount = await prisma.inventoryBatch.count({
+    where: { godownId: id, remainingQty: { gt: 0 } },
+  })
+  if (stockCount > 0) {
+    throw new BadRequestError(`Cannot delete: Godown has stock. Transfer stock first.`)
+  }
+
+  const voucherCount = await prisma.voucherItem.count({ where: { godownId: id } })
+  if (voucherCount > 0) {
+    throw new BadRequestError(`Cannot delete: Godown used in ${voucherCount} transaction(s).`)
+  }
+
+  await prisma.godown.update({ where: { id }, data: { isActive: false } })
+  sendSuccess(res, null, 'Godown deactivated')
+})
+
+// ─── DELETE /tax-masters/:id ─────────────────────────────────────────────────
+mastersRouter.delete('/tax-masters/:id', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  const usageCount = await prisma.voucherItem.count({ where: { gstRate: (await prisma.taxMaster.findUnique({ where: { id } }))?.gstRate ?? -1 } })
+  if (usageCount > 0) {
+    throw new BadRequestError(`Cannot delete: This tax rate is used in ${usageCount} transaction line(s).`)
+  }
+
+  await prisma.taxMaster.delete({ where: { id } })
+  sendSuccess(res, null, 'Tax master deleted')
+})
+
+// ─── DELETE /parties/:id (already exists, but upgrade it) ───────────────────
+mastersRouter.delete('/parties/:id/hard', async (req: Request, res: Response) => {
+  const id = req.params.id
+
+  const voucherCount = await prisma.voucher.count({ where: { partyId: id } })
+  if (voucherCount > 0) {
+    throw new BadRequestError(
+      `Cannot delete: ${voucherCount} voucher(s) exist for this party. Deactivate instead.`
+    )
+  }
+
+  const ledger = await prisma.party.findUnique({ where: { id }, select: { ledgerId: true } })
+  await prisma.$transaction([
+    prisma.partyAddress.deleteMany({ where: { partyId: id } }),
+    prisma.party.delete({ where: { id } }),
+    ...(ledger?.ledgerId ? [prisma.ledger.update({ where: { id: ledger.ledgerId }, data: { isActive: false } })] : []),
+  ])
+  sendSuccess(res, null, 'Party permanently deleted')
+})
+
+// ─── GET /items/:id/usage — check usage before delete ────────────────────────
+mastersRouter.get('/items/:id/usage', async (req: Request, res: Response) => {
+  const id = req.params.id
+  const [voucherCount, stockCount] = await Promise.all([
+    prisma.voucherItem.count({ where: { itemId: id } }),
+    prisma.inventoryBatch.aggregate({ where: { itemId: id }, _sum: { remainingQty: true } }),
+  ])
+  sendSuccess(res, {
+    voucherCount,
+    stockQty: Number(stockCount._sum.remainingQty || 0),
+    canDelete: voucherCount === 0 && Number(stockCount._sum.remainingQty || 0) === 0,
+  })
+})
+
+// ─── GET /parties/:id/usage ──────────────────────────────────────────────────
+mastersRouter.get('/parties/:id/usage', async (req: Request, res: Response) => {
+  const id = req.params.id
+  const [voucherCount, outstandingAmt] = await Promise.all([
+    prisma.voucher.count({ where: { partyId: id } }),
+    prisma.voucher.aggregate({
+      where: { partyId: id, status: 'POSTED' },
+      _sum: { balanceDue: true },
+    }),
+  ])
+  sendSuccess(res, {
+    voucherCount,
+    outstandingAmount: Number(outstandingAmt._sum.balanceDue || 0),
+    canDelete: voucherCount === 0,
+  })
+})
+
+// ─── GET /ledgers/:id/usage ──────────────────────────────────────────────────
+mastersRouter.get('/ledgers/:id/usage', async (req: Request, res: Response) => {
+  const id = req.params.id
+  const [voucherCount, partyCount] = await Promise.all([
+    prisma.voucherLedger.count({ where: { ledgerId: id } }),
+    prisma.party.count({ where: { ledgerId: id, isActive: true } }),
+  ])
+  sendSuccess(res, {
+    voucherCount,
+    partyCount,
+    canDelete: voucherCount === 0 && partyCount === 0,
+  })
+})

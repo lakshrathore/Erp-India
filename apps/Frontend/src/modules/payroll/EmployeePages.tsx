@@ -24,6 +24,7 @@ export function EmployeeListPage() {
       const { data } = await api.get('/payroll/employees', { params: { search, status, limit: 100 } })
       return data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const employees = data?.data || []
@@ -147,9 +148,9 @@ export function EmployeeFormPage() {
     enabled: isEdit,
   })
 
-  const { data: depts = [] } = useQuery({ queryKey: ['departments'], queryFn: async () => { const { data } = await api.get('/payroll/departments'); return data.data } })
-  const { data: desigs = [] } = useQuery({ queryKey: ['designations'], queryFn: async () => { const { data } = await api.get('/payroll/designations'); return data.data } })
-  const { data: structures = [] } = useQuery({ queryKey: ['salary-structures'], queryFn: async () => { const { data } = await api.get('/payroll/salary-structures'); return data.data } })
+  const { data: depts = [] } = useQuery({ queryKey: ['departments'], queryFn: async () => { const { data } = await api.get('/payroll/departments'); return data.data }, enabled: !!localStorage.getItem('erp-auth') })
+  const { data: desigs = [] } = useQuery({ queryKey: ['designations'], queryFn: async () => { const { data } = await api.get('/payroll/designations'); return data.data }, enabled: !!localStorage.getItem('erp-auth') })
+  const { data: structures = [] } = useQuery({ queryKey: ['salary-structures'], queryFn: async () => { const { data } = await api.get('/payroll/salary-structures'); return data.data }, enabled: !!localStorage.getItem('erp-auth') })
 
   const form = useForm<EmpForm>({
     resolver: zodResolver(empSchema),

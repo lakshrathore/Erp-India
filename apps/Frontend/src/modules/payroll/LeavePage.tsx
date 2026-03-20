@@ -35,6 +35,7 @@ export default function LeaveManagementPage() {
   const { data: employees = [] } = useQuery({
     queryKey: ['employees-leave'],
     queryFn: async () => { const { data } = await api.get('/payroll/employees', { params: { status: 'ACTIVE', limit: 200 } }); return data.data },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const { data: applications = [], isLoading } = useQuery({
@@ -45,6 +46,7 @@ export default function LeaveManagementPage() {
       const { data } = await api.get('/payroll/leave-applications', { params })
       return data.data || []
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const applyMutation = useMutation({

@@ -21,6 +21,7 @@ export default function ProcessPayrollPage() {
       const { data } = await api.get(`/payroll/paysheet/${month}/${year}`)
       return data.data
     },
+    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
   })
 
   const handleProcess = async () => {
