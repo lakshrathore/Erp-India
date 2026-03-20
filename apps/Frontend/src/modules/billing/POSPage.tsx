@@ -1,27 +1,30 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Banknote, Smartphone, Check, X, RotateCcw, Printer } from 'lucide-react'
-import { useItems, useParties, useTaxMasters } from '../../hooks/api.hooks'
+import {
+  Search, Plus, Minus, Trash2, ShoppingCart, CreditCard,
+  Banknote, Smartphone, Check, X, RotateCcw, Printer, ChevronRight, Package
+} from 'lucide-react'
+import { api, extractError } from '../../lib/api'
 import { useAuthStore } from '../../stores/auth.store'
 import { formatINR, amountInWords, calculateLineGST, roundOff } from '../../lib/india'
-import { api, extractError } from '../../lib/api'
 import { Badge, Spinner } from '../../components/ui'
 import { cn } from '../../components/ui/utils'
 
 interface CartItem {
   itemId: string
+  variantId: string | null
   name: string
+  variantLabel: string
   unit: string
   rate: number
   qty: number
   gstRate: number
   taxType: string
-  hsnCode?: string
 }
 
 const PAYMENT_MODES = [
-  { value: 'CASH', label: 'Cash', icon: Banknote, color: 'text-success' },
-  { value: 'UPI', label: 'UPI', icon: Smartphone, color: 'text-primary' },
-  { value: 'CARD', label: 'Card', icon: CreditCard, color: 'text-info' },
+  { value: 'CASH', label: 'Cash', icon: Banknote, color: 'text-green-600' },
+  { value: 'UPI', label: 'UPI', icon: Smartphone, color: 'text-blue-600' },
+  { value: 'CARD', label: 'Card', icon: CreditCard, color: 'text-purple-600' },
 ]
 
 function calcCart(items: CartItem[]) {
@@ -37,55 +40,156 @@ function calcCart(items: CartItem[]) {
   return { subtotal, taxable, cgst, sgst, igst, roundOff: ro, grand: Math.round(beforeRound) }
 }
 
+// ─── Variant Picker Modal ─────────────────────────────────────────────────────
+
+function VariantPicker({ item, onSelect, onClose }: { item: any; onSelect: (variant: any | null) => void; onClose: () => void }) {
+  const isPharma = item.variants?.some((v: any) => v.attributeValues?.batch_no || v.attributeValues?.exp_date)
+  const activeVariants = (item.variants || []).filter((v: any) => v.isActive)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div>
+            <h3 className="font-bold">{item.name}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{activeVariants.length} variants available</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-2 max-h-80 overflow-y-auto">
+          {/* No variant option */}
+          <button onClick={() => onSelect(null)}
+            className="w-full text-left border border-dashed border-border rounded-xl p-3 hover:border-primary hover:bg-primary/5 transition-all">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">No variant (base rate)</p>
+              </div>
+              <p className="font-bold font-mono text-sm">{formatINR(Number(item.saleRate))}</p>
+            </div>
+          </button>
+
+          {activeVariants.map((v: any) => {
+            const attrs = Object.entries(v.attributeValues || {}).filter(([, val]) => val != null && val !== '')
+            const rate = Number(v.saleRate)
+            return (
+              <button key={v.id} onClick={() => onSelect(v)}
+                className="w-full text-left border-2 border-border rounded-xl p-3 hover:border-primary hover:bg-primary/5 transition-all">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {v.code && <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded font-bold">{v.code}</span>}
+                      {attrs.map(([k, val]) => (
+                        <span key={k} className="text-sm font-semibold">{String(val)}</span>
+                      ))}
+                    </div>
+                    {v.barcode && <p className="text-xs text-muted-foreground font-mono mt-0.5">{v.barcode}</p>}
+                  </div>
+                  <p className="font-bold font-mono text-primary">{formatINR(rate)}</p>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main POS ─────────────────────────────────────────────────────────────────
+
 export default function POSPage() {
-  const { activeCompany, activeFY } = useAuthStore()
+  const { activeCompany } = useAuthStore()
   const [search, setSearch] = useState('')
+  const [items, setItems] = useState<any[]>([])
+  const [loadingItems, setLoadingItems] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
   const [payMode, setPayMode] = useState('CASH')
   const [cashGiven, setCashGiven] = useState('')
   const [saving, setSaving] = useState(false)
   const [savedBill, setSavedBill] = useState<any>(null)
   const [error, setError] = useState('')
+  const [variantPickerItem, setVariantPickerItem] = useState<any>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-
-  const { data: itemsData } = useItems({ search, limit: 30 })
-  const items = (itemsData as any)?.data || []
-  const t = calcCart(cart)
 
   useEffect(() => { searchRef.current?.focus() }, [])
 
-  const addToCart = (item: any) => {
+  // Search items
+  useEffect(() => {
+    setLoadingItems(true)
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/masters/items', { params: { search, limit: 40, isActive: 'true' } })
+        setItems(data.data || [])
+      } catch { setItems([]) }
+      finally { setLoadingItems(false) }
+    }, 200)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const t = calcCart(cart)
+
+  const handleItemClick = async (item: any) => {
+    // Fetch full item to check variants
+    try {
+      const { data } = await api.get(`/masters/items/${item.id}`)
+      const full = data.data
+      const activeVariants = (full.variants || []).filter((v: any) => v.isActive)
+
+      if (activeVariants.length > 0) {
+        // Show variant picker
+        setVariantPickerItem(full)
+      } else {
+        addToCart(full, null)
+      }
+    } catch {
+      addToCart(item, null)
+    }
+  }
+
+  const addToCart = (item: any, variant: any | null) => {
+    const rate = variant ? Number(variant.saleRate) : Number(item.saleRate)
+    const variantLabel = variant
+      ? Object.values(variant.attributeValues || {}).filter(Boolean).join(' · ')
+      : ''
+    const key = `${item.id}__${variant?.id || 'base'}`
+
     setCart(prev => {
-      const existing = prev.findIndex(c => c.itemId === item.id)
+      const existing = prev.findIndex(c => `${c.itemId}__${c.variantId || 'base'}` === key)
       if (existing >= 0) {
         return prev.map((c, i) => i === existing ? { ...c, qty: c.qty + 1 } : c)
       }
       return [...prev, {
-        itemId: item.id, name: item.name, unit: item.unit,
-        rate: Number(item.saleRate), qty: 1,
-        gstRate: Number(item.gstRate), taxType: item.taxType, hsnCode: item.hsnCode,
+        itemId: item.id,
+        variantId: variant?.id || null,
+        name: item.name,
+        variantLabel,
+        unit: item.unit,
+        rate,
+        qty: 1,
+        gstRate: Number(item.gstRate),
+        taxType: item.taxType || 'CGST_SGST',
       }]
     })
     setSearch('')
+    setVariantPickerItem(null)
     searchRef.current?.focus()
   }
 
   const updateQty = (idx: number, delta: number) => {
     setCart(prev => {
-      const newCart = prev.map((c, i) => i === idx ? { ...c, qty: Math.max(0, c.qty + delta) } : c)
-      return newCart.filter(c => c.qty > 0)
+      const updated = prev.map((c, i) => i === idx ? { ...c, qty: Math.max(0, c.qty + delta) } : c)
+      return updated.filter(c => c.qty > 0)
     })
   }
 
-  const updateRate = (idx: number, rate: number) => {
-    setCart(prev => prev.map((c, i) => i === idx ? { ...c, rate } : c))
-  }
-
+  const removeItem = (idx: number) => setCart(prev => prev.filter((_, i) => i !== idx))
   const clearCart = () => { setCart([]); setSavedBill(null); setError(''); setCashGiven('') }
-
   const change = cashGiven ? Math.max(0, Number(cashGiven) - t.grand) : 0
 
-  const handleCheckout = async () => {
+  const checkout = async () => {
     if (cart.length === 0) return
     setSaving(true); setError('')
     try {
@@ -97,9 +201,10 @@ export default function POSPage() {
         paymentMode: payMode,
         narration: `POS Sale — ${payMode}`,
         items: cart.map(c => ({
-          itemId: c.itemId, unit: c.unit, qty: c.qty,
-          freeQty: 0, rate: c.rate, discountPct: 0,
-          discount2Pct: 0, discount3Pct: 0,
+          itemId: c.itemId,
+          variantId: c.variantId,
+          unit: c.unit, qty: c.qty, freeQty: 0, rate: c.rate,
+          discountPct: 0, discount2Pct: 0, discount3Pct: 0,
           gstRate: c.gstRate, taxType: c.taxType,
         })),
         ledgerEntries: [],
@@ -107,33 +212,39 @@ export default function POSPage() {
       const { data: res } = await api.post('/billing/vouchers', payload)
       const voucherId = res.data.id
       await api.post(`/billing/vouchers/${voucherId}/post`)
-      setSavedBill({ ...res.data, items: cart, totals: t, payMode, cashGiven: Number(cashGiven), change })
+      setSavedBill({ ...res.data, cartItems: cart, totals: t, payMode, cashGiven: Number(cashGiven), change })
     } catch (e) { setError(extractError(e)) }
     finally { setSaving(false) }
   }
 
-  // Quick amounts for cash
-  const quickAmounts = [50, 100, 200, 500, 1000, 2000].filter(a => a >= t.grand - 200)
+  const quickAmounts = [50, 100, 200, 500, 1000, 2000].filter(a => a >= t.grand - 100)
 
+  // ── Success screen ──────────────────────────────────────────────────────────
   if (savedBill) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center z-50">
         <div className="bg-card border border-border rounded-2xl p-8 max-w-sm w-full shadow-2xl text-center">
-          <div className="w-16 h-16 bg-success/15 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Check size={32} className="text-success" />
+          <div className="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check size={32} className="text-green-600" />
           </div>
           <h2 className="text-xl font-bold mb-1">Payment Received!</h2>
           <p className="text-muted-foreground text-sm mb-4">{savedBill.voucherNumber}</p>
-          <div className="bg-muted/30 rounded-xl p-4 mb-4 text-sm space-y-1">
-            <div className="flex justify-between"><span>Total</span><span className="font-bold">{formatINR(t.grand)}</span></div>
-            <div className="flex justify-between"><span>{savedBill.payMode}</span><span>{formatINR(Number(savedBill.cashGiven) || t.grand)}</span></div>
-            {savedBill.change > 0 && <div className="flex justify-between text-success font-semibold"><span>Return Change</span><span>{formatINR(savedBill.change)}</span></div>}
+          <div className="bg-muted/30 rounded-xl p-4 mb-4 text-sm space-y-1.5 text-left">
+            <div className="flex justify-between"><span>Total</span><span className="font-bold font-mono">{formatINR(savedBill.totals.grand)}</span></div>
+            <div className="flex justify-between"><span>{savedBill.payMode}</span><span className="font-mono">{formatINR(Number(savedBill.cashGiven) || savedBill.totals.grand)}</span></div>
+            {savedBill.change > 0 && (
+              <div className="flex justify-between text-green-600 font-semibold">
+                <span>Return Change</span><span className="font-mono">{formatINR(savedBill.change)}</span>
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
-            <button onClick={() => window.print()} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-sm hover:bg-muted transition-colors">
+            <button onClick={() => window.print()}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border text-sm hover:bg-muted transition-colors">
               <Printer size={15} /> Print
             </button>
-            <button onClick={clearCart} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-sm hover:bg-primary/90 transition-colors">
+            <button onClick={clearCart}
+              className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-primary text-white text-sm hover:bg-primary/90 transition-colors">
               <RotateCcw size={15} /> New Bill
             </button>
           </div>
@@ -145,66 +256,86 @@ export default function POSPage() {
   return (
     <div className="h-screen flex overflow-hidden bg-background">
 
-      {/* LEFT: Item search + grid */}
+      {/* ── LEFT: Item search + grid ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 border-r border-border">
-        {/* Search bar */}
-        <div className="p-3 border-b border-border">
+
+        {/* Search */}
+        <div className="p-3 border-b border-border flex-shrink-0">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)}
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
               className="h-10 w-full rounded-xl border border-input bg-background pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="Search item by name or code..." />
+              placeholder="Search item by name or code..."
+            />
           </div>
         </div>
 
         {/* Item grid */}
         <div className="flex-1 overflow-y-auto p-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-            {items.map((item: any) => {
-              const inCart = cart.find(c => c.itemId === item.id)
-              return (
-                <button key={item.id} onClick={() => addToCart(item)}
-                  className={cn(
-                    'relative p-3 rounded-xl border text-left transition-all hover:border-primary/50 hover:bg-primary/5',
-                    inCart ? 'border-primary bg-primary/5' : 'border-border bg-card'
-                  )}>
-                  {inCart && (
-                    <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-[10px] text-white font-bold">
-                      {inCart.qty}
+          {loadingItems ? (
+            <div className="flex justify-center py-12"><Spinner /></div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-2">
+              {items.map((item: any) => {
+                const inCart = cart.filter(c => c.itemId === item.id)
+                const cartQty = inCart.reduce((s, c) => s + c.qty, 0)
+                const variantCount = item._count?.variants || 0
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleItemClick(item)}
+                    className={cn(
+                      'relative p-3 rounded-xl border text-left transition-all hover:border-primary/60 hover:bg-primary/5',
+                      cartQty > 0 ? 'border-primary bg-primary/5' : 'border-border bg-card'
+                    )}
+                  >
+                    {cartQty > 0 && (
+                      <div className="absolute top-1.5 right-1.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center text-[10px] text-white font-bold">
+                        {cartQty}
+                      </div>
+                    )}
+                    <div className="text-sm font-medium leading-snug mb-1.5 pr-4 line-clamp-2">{item.name}</div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs text-muted-foreground">{item.unit}</span>
+                      <span className="text-sm font-bold text-primary font-mono">{formatINR(Number(item.saleRate))}</span>
                     </div>
-                  )}
-                  <div className="text-sm font-medium leading-snug mb-1 pr-4">{item.name}</div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">{item.unit}</span>
-                    <span className="text-sm font-bold text-primary">{formatINR(Number(item.saleRate))}</span>
-                  </div>
-                  {Number(item.gstRate) > 0 && (
-                    <Badge variant="secondary" className="text-[9px] mt-1">GST {item.gstRate}%</Badge>
-                  )}
-                </button>
-              )
-            })}
-            {search && items.length === 0 && (
-              <div className="col-span-full text-center py-12 text-muted-foreground text-sm">No items found for "{search}"</div>
-            )}
-            {!search && items.length === 0 && (
-              <div className="col-span-full text-center py-12 text-muted-foreground text-sm">Start typing to search items</div>
-            )}
-          </div>
+                    {variantCount > 0 && (
+                      <div className="flex items-center gap-0.5 mt-1">
+                        <Badge variant="warning" className="text-[9px] px-1">{variantCount} var</Badge>
+                      </div>
+                    )}
+                    {Number(item.gstRate) > 0 && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">GST {item.gstRate}%</div>
+                    )}
+                  </button>
+                )
+              })}
+              {items.length === 0 && !loadingItems && (
+                <div className="col-span-full flex flex-col items-center justify-center py-16 text-muted-foreground">
+                  <Package size={36} className="mb-2 opacity-30" />
+                  <p className="text-sm">{search ? `No items found for "${search}"` : 'Start typing to search'}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* RIGHT: Cart + Payment */}
-      <div className="w-80 flex flex-col bg-card">
+      {/* ── RIGHT: Cart ─────────────────────────────────────────────────── */}
+      <div className="w-80 flex flex-col bg-card flex-shrink-0">
 
         {/* Cart header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2">
             <ShoppingCart size={16} className="text-primary" />
-            <span className="font-semibold text-sm">Cart ({cart.length})</span>
+            <span className="font-semibold text-sm">Cart ({cart.length} items)</span>
           </div>
           {cart.length > 0 && (
-            <button onClick={clearCart} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
+            <button onClick={clearCart} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors">
               <X size={12} /> Clear
             </button>
           )}
@@ -213,10 +344,10 @@ export default function POSPage() {
         {/* Cart items */}
         <div className="flex-1 overflow-y-auto">
           {cart.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
-              <ShoppingCart size={40} className="mb-2 opacity-30" />
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4">
+              <ShoppingCart size={36} className="mb-2 opacity-20" />
               <p className="text-sm">Cart is empty</p>
-              <p className="text-xs mt-1">Search and add items</p>
+              <p className="text-xs mt-1 text-center">Search and click items to add</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
@@ -225,26 +356,31 @@ export default function POSPage() {
                 return (
                   <div key={idx} className="px-4 py-3">
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <span className="text-sm font-medium leading-snug">{item.name}</span>
-                      <button onClick={() => updateQty(idx, -999)} className="text-muted-foreground hover:text-destructive shrink-0 mt-0.5">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.name}</p>
+                        {item.variantLabel && (
+                          <p className="text-xs text-primary font-medium">{item.variantLabel}</p>
+                        )}
+                      </div>
+                      <button onClick={() => removeItem(idx)} className="text-muted-foreground hover:text-destructive shrink-0 mt-0.5 transition-colors">
                         <Trash2 size={13} />
                       </button>
                     </div>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-1">
                         <button onClick={() => updateQty(idx, -1)}
-                          className="w-6 h-6 rounded-md border border-border flex items-center justify-center hover:bg-muted">
+                          className="w-6 h-6 rounded-md border border-border flex items-center justify-center hover:bg-muted transition-colors">
                           <Minus size={11} />
                         </button>
-                        <span className="w-8 text-center text-sm font-medium">{item.qty}</span>
+                        <span className="w-8 text-center text-sm font-semibold">{item.qty}</span>
                         <button onClick={() => updateQty(idx, 1)}
-                          className="w-6 h-6 rounded-md border border-border flex items-center justify-center hover:bg-muted">
+                          className="w-6 h-6 rounded-md border border-border flex items-center justify-center hover:bg-muted transition-colors">
                           <Plus size={11} />
                         </button>
                         <span className="text-xs text-muted-foreground ml-1">{item.unit}</span>
                       </div>
                       <div className="text-right">
-                        <div className="text-sm font-bold">{formatINR(lineTotal)}</div>
+                        <div className="text-sm font-bold font-mono">{formatINR(lineTotal)}</div>
                         <div className="text-[10px] text-muted-foreground">@ {formatINR(item.rate)}</div>
                       </div>
                     </div>
@@ -257,33 +393,35 @@ export default function POSPage() {
 
         {/* Totals */}
         {cart.length > 0 && (
-          <div className="border-t border-border px-4 py-3 space-y-1 text-sm">
+          <div className="border-t border-border px-4 py-3 space-y-1.5 text-sm flex-shrink-0">
             {t.subtotal !== t.taxable && (
               <div className="flex justify-between text-muted-foreground text-xs">
-                <span>Subtotal</span><span>{formatINR(t.subtotal)}</span>
+                <span>Subtotal</span><span className="font-mono">{formatINR(t.subtotal)}</span>
               </div>
             )}
-            {t.cgst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>CGST</span><span>{formatINR(t.cgst)}</span></div>}
-            {t.sgst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>SGST</span><span>{formatINR(t.sgst)}</span></div>}
-            {t.igst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>IGST</span><span>{formatINR(t.igst)}</span></div>}
-            {Math.abs(t.roundOff) > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>Round Off</span><span>{t.roundOff > 0 ? '+' : ''}{formatINR(t.roundOff)}</span></div>}
-            <div className="flex justify-between font-bold text-lg pt-1 border-t border-border">
-              <span>Total</span><span className="text-primary">{formatINR(t.grand)}</span>
+            {t.cgst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>CGST</span><span className="font-mono">{formatINR(t.cgst)}</span></div>}
+            {t.sgst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>SGST</span><span className="font-mono">{formatINR(t.sgst)}</span></div>}
+            {t.igst > 0 && <div className="flex justify-between text-muted-foreground text-xs"><span>IGST</span><span className="font-mono">{formatINR(t.igst)}</span></div>}
+            <div className="flex justify-between font-bold text-lg border-t border-border pt-1.5">
+              <span>Total</span>
+              <span className="font-mono text-primary">{formatINR(t.grand)}</span>
             </div>
           </div>
         )}
 
         {/* Payment */}
         {cart.length > 0 && (
-          <div className="border-t border-border px-4 py-3 space-y-3">
+          <div className="border-t border-border px-4 py-3 space-y-3 flex-shrink-0">
             {/* Payment mode */}
             <div className="grid grid-cols-3 gap-1.5">
               {PAYMENT_MODES.map(pm => {
                 const Icon = pm.icon
                 return (
                   <button key={pm.value} onClick={() => setPayMode(pm.value)}
-                    className={cn('flex flex-col items-center gap-1 py-2 rounded-lg border text-xs font-medium transition-all',
-                      payMode === pm.value ? 'border-primary bg-primary text-white' : 'border-border hover:border-primary/50')}>
+                    className={cn(
+                      'flex flex-col items-center gap-1 py-2 rounded-xl border text-xs font-medium transition-all',
+                      payMode === pm.value ? 'border-primary bg-primary text-white' : 'border-border hover:border-primary/50'
+                    )}>
                     <Icon size={16} className={payMode === pm.value ? 'text-white' : pm.color} />
                     {pm.label}
                   </button>
@@ -291,32 +429,35 @@ export default function POSPage() {
               })}
             </div>
 
-            {/* Cash given */}
+            {/* Cash amount */}
             {payMode === 'CASH' && (
               <div>
                 <div className="relative mb-2">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">₹</span>
-                  <input type="number" value={cashGiven}
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground font-medium">₹</span>
+                  <input
+                    type="number"
+                    value={cashGiven}
                     onChange={e => setCashGiven(e.target.value)}
                     placeholder={String(t.grand)}
-                    className="h-9 w-full rounded-lg border border-input bg-background pl-7 pr-3 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+                    className="h-9 w-full rounded-lg border border-input bg-background pl-7 pr-3 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
                 </div>
-                {/* Quick amounts */}
                 <div className="flex flex-wrap gap-1 mb-2">
                   {quickAmounts.slice(0, 4).map(a => (
                     <button key={a} onClick={() => setCashGiven(String(a))}
-                      className="px-2 py-1 text-xs rounded border border-border hover:border-primary hover:text-primary transition-colors">
+                      className="px-2 py-1 text-xs rounded-lg border border-border hover:border-primary hover:text-primary transition-colors">
                       ₹{a}
                     </button>
                   ))}
                   <button onClick={() => setCashGiven(String(t.grand))}
-                    className="px-2 py-1 text-xs rounded border border-primary text-primary">
+                    className="px-2 py-1 text-xs rounded-lg border border-primary text-primary font-medium">
                     Exact
                   </button>
                 </div>
                 {cashGiven && Number(cashGiven) >= t.grand && (
-                  <div className="flex justify-between text-sm font-semibold text-success bg-success/10 rounded-lg px-3 py-2">
-                    <span>Return Change</span><span>{formatINR(change)}</span>
+                  <div className="flex justify-between text-sm font-bold text-green-600 bg-green-50 dark:bg-green-950 rounded-xl px-3 py-2">
+                    <span>Return Change</span>
+                    <span className="font-mono">{formatINR(change)}</span>
                   </div>
                 )}
               </div>
@@ -324,15 +465,31 @@ export default function POSPage() {
 
             {error && <div className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">{error}</div>}
 
-            <button onClick={handleCheckout} disabled={saving || cart.length === 0}
-              className={cn('w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2',
-                saving ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-primary text-white hover:bg-primary/90 active:scale-95')}>
-              {saving ? <Spinner className="h-4 w-4" /> : <Check size={18} />}
-              {saving ? 'Processing...' : `Charge ${formatINR(t.grand)}`}
+            <button
+              onClick={checkout}
+              disabled={saving || cart.length === 0}
+              className={cn(
+                'w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2',
+                saving ? 'bg-muted text-muted-foreground cursor-not-allowed' : 'bg-primary text-white hover:bg-primary/90 active:scale-95'
+              )}>
+              {saving ? (
+                <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Processing...</span>
+              ) : (
+                <><Check size={18} /> Charge {formatINR(t.grand)}</>
+              )}
             </button>
           </div>
         )}
       </div>
+
+      {/* Variant Picker Modal */}
+      {variantPickerItem && (
+        <VariantPicker
+          item={variantPickerItem}
+          onSelect={variant => addToCart(variantPickerItem, variant)}
+          onClose={() => setVariantPickerItem(null)}
+        />
+      )}
     </div>
   )
 }

@@ -39,14 +39,20 @@ export function SaleFormPage() {
         isExport: voucher.isExport,
         items: voucher.items?.map((it: any) => ({
           itemId: it.itemId,
+          variantId: it.variantId || null,
           _itemName: it.item?.name,
+          _variantLabel: it.variant
+            ? Object.values(it.variant.attributeValues || {}).filter(Boolean).join(' · ')
+            : '',
           unit: it.unit,
           qty: Number(it.qty),
-          freeQty: Number(it.freeQty),
+          freeQty: Number(it.freeQty || 0),
           rate: Number(it.rate),
-          discountPct: Number(it.discountPct),
+          discountPct: Number(it.discountPct || 0),
+          discount2Pct: Number(it.discount2Pct || 0),
+          discount3Pct: Number(it.discount3Pct || 0),
           gstRate: Number(it.gstRate),
-          taxType: it.taxType,
+          taxType: it.taxType || 'CGST_SGST',
         })) || [],
       } : undefined}
       onSuccess={() => navigate('/billing/sale')}
