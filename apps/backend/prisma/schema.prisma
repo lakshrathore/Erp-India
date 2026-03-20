@@ -223,6 +223,7 @@ model Company {
   itemCategories    ItemCategory[]
   items             Item[]
   taxMasters        TaxMaster[]
+  unitMasters       UnitMaster[]
   godowns           Godown[]
   vouchers          Voucher[]
   gstEntries        GSTEntry[]
@@ -425,6 +426,8 @@ model Ledger {
   journalEntries JournalEntry[]
   bankStatements BankStatement[]
   partyAsLedger  Party?
+  itemsAsIncome  Item[] @relation("ItemIncomeLedger")
+  itemsAsExpense Item[] @relation("ItemExpenseLedger")
 
   @@unique([companyId, name])
   @@map("ledgers")
@@ -519,7 +522,13 @@ model ItemCategory {
   id           String  @id @default(uuid())
   companyId    String
   name         String
-  // JSON schema for dynamic attributes
+  parentId     String?   // null = root/top-level category
+  level        Int     @default(1)  // 1 = root, 2 = sub, 3 = sub-sub (max 3 levels)
+  sortOrder    Int     @default(0)
+  color        String?   // optional hex color for UI display
+  icon         String?   // optional icon name
+  description  String?
+  // JSON schema for dynamic attributes — inherited + overridden from parent
   // e.g. [{"name":"color","type":"text","required":false},
   //        {"name":"size","type":"select","options":["S","M","L","XL"],"required":true},
   //        {"name":"mfg_date","type":"date","required":false},
@@ -531,8 +540,10 @@ model ItemCategory {
   isActive     Boolean @default(true)
   createdAt    DateTime @default(now())
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  items   Item[]
+  company  Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent   ItemCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children ItemCategory[] @relation("CategoryHierarchy")
+  items    Item[]
 
   @@unique([companyId, name])
   @@map("item_categories")
@@ -545,31 +556,44 @@ model Item {
   code         String?
   name         String
   description  String?
-  unit         String  @default("PCS")  // PCS, KG, LTR, MTR, BOX etc.
+  isService    Boolean @default(false)  // true = Service (SAC), false = Goods (HSN)
+  unit         String  @default("PCS")
   alternateUnit String?
   conversionFactor Decimal? @db.Decimal(10, 4)
 
   // GST
-  hsnCode      String?
-  sacCode      String?
-  gstRate      Decimal @default(0) @db.Decimal(5, 2)  // 0, 5, 12, 18, 28
+  hsnCode      String?   // For goods
+  sacCode      String?   // For services
+  taxMasterId  String?
+  gstRate      Decimal @default(0) @db.Decimal(5, 2)
   cessRate     Decimal @default(0) @db.Decimal(5, 2)
   taxType      TaxType @default(CGST_SGST)
+
+  // Ledger overrides (mainly for services — overrides company-level LedgerMapping defaults)
+  // For goods: usually null → uses sale_sales_ledger / purchase_purchase_ledger from LedgerMapping
+  // For services: set specific income/expense ledger e.g. "Consulting Income", "Repair Charges"
+  incomeLedgerId  String?  // Income ledger for this item when sold
+  expenseLedgerId String?  // Expense ledger for this item when purchased
+
+  // TDS applicability (for service purchases — 194C, 194J etc.)
+  tdsApplicable   Boolean  @default(false)
+  tdsSection      String?  // "194C", "194J", "194I" etc.
+  tdsRate         Decimal? @db.Decimal(5, 2)
 
   // Pricing
   purchaseRate Decimal @default(0) @db.Decimal(15, 4)
   saleRate     Decimal @default(0) @db.Decimal(15, 4)
   mrp          Decimal @default(0) @db.Decimal(15, 2)
-  ptr          Decimal @default(0) @db.Decimal(15, 4)  // Price to Retailer
-  pts          Decimal @default(0) @db.Decimal(15, 4)  // Price to Stockist
-  wholesaleRate Decimal @default(0) @db.Decimal(15, 4) // Wholesale rate
-  
-  // Multi-level discount
-  tradeDiscount   Decimal @default(0) @db.Decimal(5, 2)  // % discount always applied
-  cashDiscount    Decimal @default(0) @db.Decimal(5, 2)  // % cash/prompt payment disc
-  schemeDiscount  Decimal @default(0) @db.Decimal(5, 2)  // % scheme/seasonal disc
+  ptr          Decimal @default(0) @db.Decimal(15, 4)
+  pts          Decimal @default(0) @db.Decimal(15, 4)
+  wholesaleRate Decimal @default(0) @db.Decimal(15, 4)
 
-  // Inventory control
+  // Multi-level discount
+  tradeDiscount   Decimal @default(0) @db.Decimal(5, 2)
+  cashDiscount    Decimal @default(0) @db.Decimal(5, 2)
+  schemeDiscount  Decimal @default(0) @db.Decimal(5, 2)
+
+  // Inventory control (only relevant for Goods)
   maintainStock    Boolean @default(true)
   reorderLevel     Decimal @default(0) @db.Decimal(15, 3)
   reorderQty       Decimal @default(0) @db.Decimal(15, 3)
@@ -579,12 +603,16 @@ model Item {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  company      Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  category     ItemCategory? @relation(fields: [categoryId], references: [id])
-  variants     ItemVariant[]
-  voucherItems VoucherItem[]
-  batches      InventoryBatch[]
-  movements    StockMovement[]
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  category       ItemCategory? @relation(fields: [categoryId], references: [id])
+  taxMaster      TaxMaster?    @relation(fields: [taxMasterId], references: [id])
+  incomeLedger   Ledger?       @relation("ItemIncomeLedger",  fields: [incomeLedgerId],  references: [id])
+  expenseLedger  Ledger?       @relation("ItemExpenseLedger", fields: [expenseLedgerId], references: [id])
+  variants       ItemVariant[]
+  voucherItems   VoucherItem[]
+  batches        InventoryBatch[]
+  movements      StockMovement[]
+  taxHistory     ItemTaxHistory[]
 
   @@unique([companyId, name])
   @@map("items")
@@ -622,10 +650,61 @@ model TaxMaster {
   cessRate    Decimal  @default(0) @db.Decimal(5, 2)
   isActive    Boolean  @default(true)
 
-  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company    Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items      Item[]
+  taxHistory ItemTaxHistory[]
 
   @@unique([companyId, name])
   @@map("tax_masters")
+}
+
+// ─── Item Tax Rate History — government notification based date-wise changes ──
+model ItemTaxHistory {
+  id            String   @id @default(uuid())
+  companyId     String
+  itemId        String
+  taxMasterId   String
+  effectiveFrom DateTime @db.Date   // Rate applicable from this date
+  effectiveTo   DateTime? @db.Date  // null = currently active
+  gstRate       Decimal  @db.Decimal(5, 2)
+  cessRate      Decimal  @default(0) @db.Decimal(5, 2)
+  notificationNo String?  // GST notification number e.g. "01/2023-CT(Rate)"
+  remarks       String?
+  createdAt     DateTime @default(now())
+  createdBy     String?
+
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  taxMaster TaxMaster @relation(fields: [taxMasterId], references: [id])
+
+  @@index([itemId, effectiveFrom])
+  @@map("item_tax_history")
+}
+
+// ─── HSN / SAC Master — Central government codes (global, not per company) ───
+model HsnSacCode {
+  id          String @id @default(uuid())
+  code        String @unique
+  description String
+  codeType    String // "HSN" or "SAC"
+  isActive    Boolean @default(true)
+
+  @@index([codeType, code])
+  @@map("hsn_sac_codes")
+}
+
+model UnitMaster {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String   // "PCS", "KG", "LTR", "MTR"
+  symbol      String   // "Pcs", "Kg", "Ltr", "Mtr"
+  isSystem    Boolean  @default(false) // system units cannot be deleted
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@map("unit_masters")
 }
 
 model Godown {

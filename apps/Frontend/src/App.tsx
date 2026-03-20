@@ -19,6 +19,8 @@ const ItemFormPage       = lazy(() => import('./modules/masters/ItemFormPage'))
 const ItemCatPage        = lazy(() => import('./modules/masters/ItemCategoriesPage'))
 const LedgersPage        = lazy(() => import('./modules/masters/LedgersPage'))
 const GodownsPage        = lazy(() => import('./modules/masters/GodownsPage'))
+const TaxMastersPage     = lazy(() => import('./modules/masters/TaxMastersPage'))
+const UnitsPage          = lazy(() => import('./modules/masters/UnitsPage'))
 
 // GST
 const GSTR1Page          = lazy(() => import('./modules/gst/GSTR1Page'))
@@ -118,6 +120,8 @@ export default function App() {
                 <Route path="item-categories"   element={<ItemCatPage />} />
                 <Route path="ledgers"           element={<LedgersPage />} />
                 <Route path="godowns"           element={<GodownsPage />} />
+                <Route path="tax"               element={<TaxMastersPage />} />
+                <Route path="units"             element={<UnitsPage />} />
               </Route>
 
               {/* Billing */}

@@ -1,15 +1,15 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useLocation, Outlet, Navigate } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, BookOpen,
-  FileText, Users, Settings, ChevronDown, ChevronRight,
+  FileText, Users, Settings, ChevronDown,
   Building2, BarChart3, CreditCard, Receipt, Wallet,
-  ClipboardList, UserCheck, Menu, LogOut, Bell, X,
-  Building, ChevronLeft, TrendingUp, TrendingDown, User, RefreshCcw, Printer, Plus, Trash2,
+  ClipboardList, UserCheck, Menu, LogOut, X,
+  Building, ChevronRight, TrendingUp, TrendingDown, User, RefreshCcw, Printer, Plus, Trash2,
+  PanelLeftClose, PanelLeftOpen, Ruler,
 } from 'lucide-react'
 import { cn } from '../ui/utils'
 import { useAuthStore } from '../../stores/auth.store'
-import { Button } from '../ui'
 
 interface NavItem {
   label: string
@@ -60,6 +60,7 @@ const NAV: NavItem[] = [
       { label: 'Ledgers', icon: BookOpen, href: '/masters/ledgers' },
       { label: 'Godowns', icon: Building, href: '/masters/godowns' },
       { label: 'Tax Masters', icon: Receipt, href: '/masters/tax' },
+      { label: 'Units', icon: Ruler, href: '/masters/units' },
     ],
   },
   {
@@ -122,11 +123,112 @@ const NAV: NavItem[] = [
   },
 ]
 
-// ─── Nav Item ─────────────────────────────────────────────────────────────────
+// ─── Collapsed icon with flyout submenu on hover ──────────────────────────────
+
+function CollapsedNavItem({ item, onExpand }: { item: NavItem; onExpand: () => void }) {
+  const location = useLocation()
+  const [hovering, setHovering] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const hasChildren = !!item.children?.length
+  const isParentActive = hasChildren
+    ? item.children!.some(c => c.href && location.pathname.startsWith(c.href))
+    : item.href && location.pathname.startsWith(item.href)
+
+  const handleMouseEnter = () => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    setHovering(true)
+  }
+  const handleMouseLeave = () => {
+    timerRef.current = setTimeout(() => setHovering(false), 120)
+  }
+
+  return (
+    <div className="relative" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+      {/* Icon button */}
+      {item.href && !hasChildren ? (
+        <Link
+          to={item.href}
+          title={item.label}
+          className={cn(
+            'flex items-center justify-center w-10 h-10 rounded-lg transition-colors mx-auto',
+            isParentActive
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          )}
+        >
+          <item.icon size={18} />
+        </Link>
+      ) : (
+        <button
+          title={item.label}
+          className={cn(
+            'flex items-center justify-center w-10 h-10 rounded-lg transition-colors mx-auto',
+            isParentActive
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+          )}
+        >
+          <item.icon size={18} />
+        </button>
+      )}
+
+      {/* Flyout panel */}
+      {hovering && (
+        <div
+          className="absolute left-full top-0 ml-2 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[180px]"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          {/* Section header — clicking expands the sidebar */}
+          <div
+            className="flex items-center justify-between px-3 py-1.5 border-b border-border mb-1 cursor-pointer group"
+            onClick={onExpand}
+          >
+            <span className="text-xs font-semibold text-foreground">{item.label}</span>
+            <PanelLeftOpen size={12} className="text-muted-foreground group-hover:text-primary transition-colors" />
+          </div>
+
+          {hasChildren ? (
+            item.children!.map(child => (
+              <Link
+                key={child.href || child.label}
+                to={child.href!}
+                className={cn(
+                  'flex items-center gap-2 px-3 py-1.5 text-xs transition-colors',
+                  child.href && location.pathname === child.href
+                    ? 'text-primary font-medium bg-primary/5'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                )}
+              >
+                <child.icon size={13} className="shrink-0" />
+                <span>{child.label}</span>
+              </Link>
+            ))
+          ) : (
+            item.href && (
+              <Link
+                to={item.href}
+                className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              >
+                <item.icon size={13} className="shrink-0" />
+                <span>{item.label}</span>
+              </Link>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Expanded Nav Item ────────────────────────────────────────────────────────
 
 function NavItemComp({ item, depth = 0, onNavigate }: { item: NavItem; depth?: number; onNavigate?: () => void }) {
   const location = useLocation()
-  const isActive = item.href ? location.pathname === item.href || location.pathname.startsWith(item.href + '/') : false
+  const isActive = item.href
+    ? location.pathname === item.href || location.pathname.startsWith(item.href + '/')
+    : false
   const hasChildren = item.children && item.children.length > 0
 
   const isParentActive = hasChildren && item.children?.some(c =>
@@ -148,8 +250,8 @@ function NavItemComp({ item, depth = 0, onNavigate }: { item: NavItem; depth?: n
           )}
         >
           <item.icon size={16} className="shrink-0" />
-          <span className="flex-1 text-left">{item.label}</span>
-          <ChevronDown size={14} className={cn('transition-transform duration-200', open && 'rotate-180')} />
+          <span className="flex-1 text-left truncate">{item.label}</span>
+          <ChevronDown size={14} className={cn('transition-transform duration-200 shrink-0', open && 'rotate-180')} />
         </button>
         {open && (
           <div className="ml-4 mt-0.5 border-l border-border pl-2 space-y-0.5">
@@ -180,42 +282,54 @@ function NavItemComp({ item, depth = 0, onNavigate }: { item: NavItem; depth?: n
   )
 }
 
-// ─── Sidebar Content ──────────────────────────────────────────────────────────
+// ─── Sidebar Content (expanded) ───────────────────────────────────────────────
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({ onNavigate, onCollapse }: { onNavigate?: () => void; onCollapse?: () => void }) {
   const { activeCompany, activeFY, user } = useAuthStore()
   const logoutFn = useAuthStore(s => s.logout)
+  const companyName = activeCompany?.companyName || 'ERP India'
+  const initial = companyName.charAt(0).toUpperCase()
 
   return (
     <div className="flex flex-col h-full">
       {/* Company header */}
-      <div className="px-4 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-base shrink-0">
-            {activeCompany?.companyName?.charAt(0) || 'E'}
+      <div className="px-3 py-3 border-b border-border">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm shrink-0">
+            {initial}
           </div>
-          <div className="min-w-0">
-            <p className="font-semibold text-sm truncate">{activeCompany?.companyName || 'ERP India'}</p>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold text-sm leading-tight truncate" title={companyName}>
+              {companyName}
+            </p>
             <p className="text-xs text-muted-foreground">{activeFY ? `FY ${activeFY}` : 'Select FY'}</p>
           </div>
+          {/* Collapse button — only shown when inside expanded sidebar */}
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              title="Collapse sidebar"
+              className="shrink-0 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <PanelLeftClose size={15} />
+            </button>
+          )}
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-0.5">
+      <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         {NAV.map(item => (
           <NavItemComp key={item.href || item.label} item={item} onNavigate={onNavigate} />
         ))}
       </nav>
 
       {/* Footer */}
-      <div className="border-t border-border p-3 space-y-1">
+      <div className="border-t border-border p-2 space-y-0.5">
         <Link to="/profile" onClick={onNavigate}
           className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
           <User size={14} className="shrink-0" />
-          <div className="min-w-0">
-            <p className="truncate text-xs font-medium">{user?.name || user?.email || 'Profile'}</p>
-          </div>
+          <span className="truncate text-xs font-medium">{user?.name || user?.email || 'Profile'}</span>
         </Link>
         <Link to="/select-company" onClick={onNavigate}
           className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
@@ -240,7 +354,6 @@ export default function AppLayout() {
   const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const location = useLocation()
 
-  // Close mobile sidebar on route change
   useEffect(() => { setMobileOpen(false) }, [location.pathname])
 
   if (!user) return <Navigate to="/login" replace />
@@ -255,49 +368,69 @@ export default function AppLayout() {
         desktopCollapsed ? 'w-14' : 'w-56'
       )}>
         {desktopCollapsed ? (
-          /* Collapsed — icons only */
+          /* ── Collapsed state ── */
           <div className="flex flex-col h-full">
-            <div className="flex items-center justify-center py-4 border-b border-border">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">
-                {activeCompany?.companyName?.charAt(0) || 'E'}
+            {/* Company initial + expand button */}
+            <div className="flex flex-col items-center py-3 gap-1 border-b border-border">
+              <div
+                className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm cursor-pointer"
+                title={activeCompany?.companyName}
+                onClick={() => setDesktopCollapsed(false)}
+              >
+                {activeCompany?.companyName?.charAt(0)?.toUpperCase() || 'E'}
               </div>
+              <button
+                onClick={() => setDesktopCollapsed(false)}
+                title="Expand sidebar"
+                className="p-1 rounded-md text-muted-foreground hover:text-primary hover:bg-muted/50 transition-colors"
+              >
+                <PanelLeftOpen size={14} />
+              </button>
             </div>
-            <div className="flex-1 flex flex-col items-center py-3 gap-1 overflow-y-auto">
+
+            {/* Nav icons with flyout */}
+            <div className="flex-1 flex flex-col items-center py-2 gap-0.5 overflow-y-auto px-1">
               {NAV.map(item => (
-                <Link key={item.href || item.label} to={item.href || '#'}
-                  title={item.label}
-                  className="p-2.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-                  <item.icon size={18} />
-                </Link>
+                <CollapsedNavItem
+                  key={item.href || item.label}
+                  item={item}
+                  onExpand={() => setDesktopCollapsed(false)}
+                />
               ))}
             </div>
-            <button onClick={() => setDesktopCollapsed(false)}
-              className="flex items-center justify-center p-3 border-t border-border text-muted-foreground hover:text-foreground transition-colors">
-              <ChevronRight size={16} />
-            </button>
+
+            {/* Footer icons */}
+            <div className="border-t border-border py-2 flex flex-col items-center gap-0.5">
+              <Link to="/profile" title="Profile"
+                className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors mx-auto">
+                <User size={16} />
+              </Link>
+              <Link to="/select-company" title="Switch Company"
+                className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors mx-auto">
+                <RefreshCcw size={16} />
+              </Link>
+              <button
+                onClick={() => { useAuthStore.getState().logout(); window.location.href = '/login' }}
+                title="Logout"
+                className="flex items-center justify-center w-10 h-10 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors mx-auto">
+                <LogOut size={16} />
+              </button>
+            </div>
           </div>
         ) : (
-          /* Expanded */
-          <div className="flex flex-col h-full relative">
-            <SidebarContent />
-            <button onClick={() => setDesktopCollapsed(true)}
-              className="absolute top-4 right-3 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors">
-              <ChevronLeft size={14} />
-            </button>
-          </div>
+          /* ── Expanded state ── */
+          <SidebarContent onCollapse={() => setDesktopCollapsed(true)} />
         )}
       </aside>
 
       {/* ── Mobile Sidebar (overlay) ─────────────────────────────────────── */}
       {mobileOpen && (
         <>
-          {/* Backdrop */}
           <div
             className="fixed inset-0 z-40 bg-black/50 lg:hidden"
             onClick={() => setMobileOpen(false)}
           />
-          {/* Drawer */}
-          <div className="fixed inset-y-0 left-0 z-50 w-72 bg-card border-r border-border shadow-2xl lg:hidden flex flex-col">
+          <div className="fixed inset-y-0 left-0 z-50 w-64 bg-card border-r border-border shadow-2xl lg:hidden flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <span className="font-bold text-sm">Menu</span>
               <button onClick={() => setMobileOpen(false)}
@@ -315,7 +448,7 @@ export default function AppLayout() {
       {/* ── Main content ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-        {/* Top bar — mobile */}
+        {/* Top bar — mobile only */}
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-border bg-card shrink-0">
           <button onClick={() => setMobileOpen(true)}
             className="p-2 rounded-lg hover:bg-muted transition-colors">

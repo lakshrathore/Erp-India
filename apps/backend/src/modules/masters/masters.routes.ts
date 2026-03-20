@@ -139,24 +139,73 @@ const categoryAttributeSchema = z.object({
 
 const itemCategorySchema = z.object({
   name: z.string().min(2),
+  parentId: z.string().uuid().optional().nullable(),
+  description: z.string().optional().nullable(),
+  color: z.string().optional().nullable(),
+  icon: z.string().optional().nullable(),
+  sortOrder: z.coerce.number().default(0),
   attributes: z.array(categoryAttributeSchema).default([]),
   trackBatch: z.boolean().default(false),
   trackExpiry: z.boolean().default(false),
 })
 
+// ─── GET /item-categories — returns full tree (all levels) ───────────────────
 mastersRouter.get('/item-categories', async (req: Request, res: Response) => {
+  const { flat } = req.query  // ?flat=1 for dropdown lists
   const cats = await prisma.itemCategory.findMany({
     where: { companyId: req.companyId, isActive: true },
-    include: { _count: { select: { items: true } } },
-    orderBy: { name: 'asc' },
+    include: {
+      _count: { select: { items: true, children: true } },
+    },
+    orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }, { name: 'asc' }],
   })
-  sendSuccess(res, cats)
+
+  if (flat === '1') {
+    // Flat list for dropdowns — include breadcrumb path
+    const catMap = new Map(cats.map(c => [c.id, c]))
+    const withPath = cats.map(c => {
+      const parts: string[] = []
+      let cur: typeof c | undefined = c
+      while (cur) {
+        parts.unshift(cur.name)
+        cur = cur.parentId ? catMap.get(cur.parentId) : undefined
+      }
+      return { ...c, path: parts.join(' > ') }
+    })
+    return sendSuccess(res, withPath)
+  }
+
+  // Build tree structure
+  const catMap = new Map(cats.map(c => [c.id, { ...c, children: [] as any[] }]))
+  const roots: any[] = []
+  for (const c of catMap.values()) {
+    if (c.parentId && catMap.has(c.parentId)) {
+      catMap.get(c.parentId)!.children.push(c)
+    } else {
+      roots.push(c)
+    }
+  }
+  sendSuccess(res, roots)
 })
 
 mastersRouter.post('/item-categories', async (req: Request, res: Response) => {
   const body = itemCategorySchema.safeParse(req.body)
   if (!body.success) throw new BadRequestError(body.error.errors[0].message)
-  const cat = await prisma.itemCategory.create({ data: { ...body.data, companyId: req.companyId } })
+
+  // Calculate level from parent
+  let level = 1
+  if (body.data.parentId) {
+    const parent = await prisma.itemCategory.findFirst({
+      where: { id: body.data.parentId, companyId: req.companyId, isActive: true },
+    })
+    if (!parent) throw new BadRequestError('Parent category not found')
+    level = parent.level + 1
+    if (level > 3) throw new BadRequestError('Maximum 3 levels of category hierarchy allowed')
+  }
+
+  const cat = await prisma.itemCategory.create({
+    data: { ...body.data, companyId: req.companyId, level },
+  })
   sendSuccess(res, cat, 'Category created', 201)
 })
 
@@ -165,18 +214,43 @@ mastersRouter.put('/item-categories/:id', async (req: Request, res: Response) =>
   if (!existing) throw new NotFoundError('Category')
   const body = itemCategorySchema.partial().safeParse(req.body)
   if (!body.success) throw new BadRequestError(body.error.errors[0].message)
-  // If name changed, check for duplicate
+
+  // Check for duplicate name
   if (body.data.name && body.data.name !== existing.name) {
     const dup = await prisma.itemCategory.findFirst({ where: { companyId: req.companyId, name: body.data.name, id: { not: req.params.id } } })
     if (dup) throw new BadRequestError(`Category "${body.data.name}" already exists`)
   }
-  const cat = await prisma.itemCategory.update({ where: { id: req.params.id }, data: body.data as any })
+
+  // Recalculate level if parentId changed
+  let level = existing.level
+  if (body.data.parentId !== undefined) {
+    if (!body.data.parentId) {
+      level = 1
+    } else {
+      const parent = await prisma.itemCategory.findFirst({
+        where: { id: body.data.parentId, companyId: req.companyId, isActive: true },
+      })
+      if (!parent) throw new BadRequestError('Parent category not found')
+      level = parent.level + 1
+      if (level > 3) throw new BadRequestError('Maximum 3 levels of category hierarchy allowed')
+      // Prevent circular reference
+      if (body.data.parentId === req.params.id) throw new BadRequestError('Category cannot be its own parent')
+    }
+  }
+
+  const cat = await prisma.itemCategory.update({ where: { id: req.params.id }, data: { ...body.data, level } as any })
   sendSuccess(res, cat, 'Category updated')
 })
 
 mastersRouter.get('/item-categories/:id/usage', async (req: Request, res: Response) => {
   const itemCount = await prisma.item.count({ where: { categoryId: req.params.id, companyId: req.companyId } })
-  sendSuccess(res, { itemCount, canDelete: itemCount === 0, message: itemCount > 0 ? `${itemCount} items use this category` : null })
+  const childCount = await prisma.itemCategory.count({ where: { parentId: req.params.id, isActive: true } })
+  sendSuccess(res, {
+    itemCount,
+    childCount,
+    canDelete: itemCount === 0 && childCount === 0,
+    message: itemCount > 0 ? `${itemCount} items use this category` : childCount > 0 ? `${childCount} sub-categories exist` : null,
+  })
 })
 
 // ═══════════════════════════════════════════════════════════════
@@ -186,6 +260,7 @@ mastersRouter.get('/item-categories/:id/usage', async (req: Request, res: Respon
 const itemSchema = z.object({
   name: z.string().min(2),
   code: z.string().optional(),
+  isService: z.boolean().default(false),
   categoryId: z.string().uuid().optional().nullable(),
   description: z.string().optional(),
   unit: z.string().default('PCS'),
@@ -193,9 +268,17 @@ const itemSchema = z.object({
   conversionFactor: z.coerce.number().optional(),
   hsnCode: z.string().optional(),
   sacCode: z.string().optional(),
-  gstRate: z.coerce.number().min(0).max(100).default(18),
+  taxMasterId: z.string().uuid().optional().nullable(),
+  gstRate: z.coerce.number().min(0).max(100).default(0),
   cessRate: z.coerce.number().default(0),
   taxType: z.nativeEnum(TaxType).default('CGST_SGST'),
+  // Service ledger overrides (optional — falls back to company LedgerMapping defaults)
+  incomeLedgerId: z.string().uuid().optional().nullable(),
+  expenseLedgerId: z.string().uuid().optional().nullable(),
+  // TDS on service purchase
+  tdsApplicable: z.boolean().default(false),
+  tdsSection: z.string().optional().nullable(),
+  tdsRate: z.coerce.number().optional().nullable(),
   purchaseRate: z.coerce.number().default(0),
   saleRate: z.coerce.number().default(0),
   mrp: z.coerce.number().default(0),
@@ -362,12 +445,69 @@ mastersRouter.put('/ledgers/:id', async (req: Request, res: Response) => {
 // TAX MASTER
 // ═══════════════════════════════════════════════════════════════
 
+const DEFAULT_TAX_MASTERS = [
+  { name: 'GST 0%',    gstRate: 0,    cgstRate: 0,    sgstRate: 0,    igstRate: 0,    cessRate: 0 },
+  { name: 'GST 0.25%', gstRate: 0.25, cgstRate: 0.125,sgstRate: 0.125,igstRate: 0.25, cessRate: 0 },
+  { name: 'GST 1%',    gstRate: 1,    cgstRate: 0.5,  sgstRate: 0.5,  igstRate: 1,    cessRate: 0 },
+  { name: 'GST 1.5%',  gstRate: 1.5,  cgstRate: 0.75, sgstRate: 0.75, igstRate: 1.5,  cessRate: 0 },
+  { name: 'GST 3%',    gstRate: 3,    cgstRate: 1.5,  sgstRate: 1.5,  igstRate: 3,    cessRate: 0 },
+  { name: 'GST 5%',    gstRate: 5,    cgstRate: 2.5,  sgstRate: 2.5,  igstRate: 5,    cessRate: 0 },
+  { name: 'GST 6%',    gstRate: 6,    cgstRate: 3,    sgstRate: 3,    igstRate: 6,    cessRate: 0 },
+  { name: 'GST 7.5%',  gstRate: 7.5,  cgstRate: 3.75, sgstRate: 3.75, igstRate: 7.5,  cessRate: 0 },
+  { name: 'GST 9%',    gstRate: 9,    cgstRate: 4.5,  sgstRate: 4.5,  igstRate: 9,    cessRate: 0 },
+  { name: 'GST 12%',   gstRate: 12,   cgstRate: 6,    sgstRate: 6,    igstRate: 12,   cessRate: 0 },
+  { name: 'GST 14%',   gstRate: 14,   cgstRate: 7,    sgstRate: 7,    igstRate: 14,   cessRate: 0 },
+  { name: 'GST 18%',   gstRate: 18,   cgstRate: 9,    sgstRate: 9,    igstRate: 18,   cessRate: 0 },
+  { name: 'GST 28%',   gstRate: 28,   cgstRate: 14,   sgstRate: 14,   igstRate: 28,   cessRate: 0 },
+  { name: 'GST 28% + Cess 12%', gstRate: 28, cgstRate: 14, sgstRate: 14, igstRate: 28, cessRate: 12 },
+  { name: 'GST 28% + Cess 22%', gstRate: 28, cgstRate: 14, sgstRate: 14, igstRate: 28, cessRate: 22 },
+]
+
+const taxMasterSchema = z.object({
+  name:      z.string().min(2),
+  gstRate:   z.coerce.number().min(0).max(100),
+  cgstRate:  z.coerce.number().min(0).max(100),
+  sgstRate:  z.coerce.number().min(0).max(100),
+  igstRate:  z.coerce.number().min(0).max(100),
+  cessRate:  z.coerce.number().min(0).max(100).default(0),
+})
+
 mastersRouter.get('/tax-masters', async (req: Request, res: Response) => {
+  // Auto-seed defaults on first access
+  const count = await prisma.taxMaster.count({ where: { companyId: req.companyId } })
+  if (count === 0) {
+    await prisma.taxMaster.createMany({
+      data: DEFAULT_TAX_MASTERS.map(t => ({ ...t, companyId: req.companyId })),
+      skipDuplicates: true,
+    })
+  }
   const taxes = await prisma.taxMaster.findMany({
     where: { companyId: req.companyId, isActive: true },
     orderBy: { gstRate: 'asc' },
   })
   sendSuccess(res, taxes)
+})
+
+mastersRouter.post('/tax-masters', async (req: Request, res: Response) => {
+  const body = taxMasterSchema.safeParse(req.body)
+  if (!body.success) throw new BadRequestError(body.error.errors[0].message)
+  const dup = await prisma.taxMaster.findFirst({ where: { companyId: req.companyId, name: body.data.name } })
+  if (dup) throw new BadRequestError(`Tax master "${body.data.name}" already exists`)
+  const tax = await prisma.taxMaster.create({ data: { ...body.data, companyId: req.companyId } })
+  sendSuccess(res, tax, 'Tax master created', 201)
+})
+
+mastersRouter.put('/tax-masters/:id', async (req: Request, res: Response) => {
+  const existing = await prisma.taxMaster.findFirst({ where: { id: req.params.id, companyId: req.companyId } })
+  if (!existing) throw new NotFoundError('Tax Master')
+  const body = taxMasterSchema.partial().safeParse(req.body)
+  if (!body.success) throw new BadRequestError(body.error.errors[0].message)
+  if (body.data.name && body.data.name !== existing.name) {
+    const dup = await prisma.taxMaster.findFirst({ where: { companyId: req.companyId, name: body.data.name, id: { not: req.params.id } } })
+    if (dup) throw new BadRequestError(`Tax master "${body.data.name}" already exists`)
+  }
+  const tax = await prisma.taxMaster.update({ where: { id: req.params.id }, data: body.data as any })
+  sendSuccess(res, tax, 'Tax master updated')
 })
 
 // ═══════════════════════════════════════════════════════════════
@@ -458,6 +598,16 @@ mastersRouter.delete('/item-categories/:id', async (req: Request, res: Response)
   if (itemCount > 0) {
     throw new BadRequestError(
       `Cannot delete: ${itemCount} item(s) are using this category. Remove or reassign items first.`
+    )
+  }
+
+  // Check if any child categories exist
+  const childCount = await prisma.itemCategory.count({
+    where: { parentId: id, isActive: true },
+  })
+  if (childCount > 0) {
+    throw new BadRequestError(
+      `Cannot delete: ${childCount} sub-categor${childCount > 1 ? 'ies' : 'y'} exist. Delete sub-categories first.`
     )
   }
 
@@ -717,3 +867,190 @@ mastersRouter.get('/bank-accounts', async (req: Request, res: Response) => {
   })
   sendSuccess(res, banks)
 })
+
+// ═══════════════════════════════════════════════════════════════
+// HSN / SAC CODE SEARCH
+// ═══════════════════════════════════════════════════════════════
+
+mastersRouter.get('/hsn-sac/search', async (req: Request, res: Response) => {
+  const { q = '', type, limit = '20' } = req.query as Record<string, string>
+  const take = Math.min(parseInt(limit) || 20, 100)
+
+  if (!q || q.length < 2) {
+    return sendSuccess(res, [])
+  }
+
+  const isNumeric = /^\d+$/.test(q.trim())
+
+  const results = await prisma.hsnSacCode.findMany({
+    where: {
+      isActive: true,
+      ...(type ? { codeType: type.toUpperCase() } : {}),
+      OR: isNumeric
+        ? [{ code: { startsWith: q.trim() } }]
+        : [
+            { code: { contains: q.trim() } },
+            { description: { contains: q.trim(), mode: 'insensitive' } },
+          ],
+    },
+    orderBy: [{ codeType: 'asc' }, { code: 'asc' }],
+    take,
+    select: { id: true, code: true, description: true, codeType: true },
+  })
+
+  sendSuccess(res, results)
+})
+
+// Seed HSN/SAC codes — call once via POST /api/masters/hsn-sac/seed (super admin only)
+mastersRouter.post('/hsn-sac/seed', async (req: Request, res: Response) => {
+  if (!req.user.isSuperAdmin) throw new ForbiddenError('Super admin only')
+
+  const existing = await prisma.hsnSacCode.count()
+  if (existing > 0) {
+    return sendSuccess(res, { message: `Already seeded: ${existing} records exist`, count: existing })
+  }
+
+  const data: Array<{ code: string; description: string; codeType: string }> = req.body.data
+  if (!Array.isArray(data) || data.length === 0) {
+    throw new BadRequestError('No data provided')
+  }
+
+  // Batch insert in chunks of 1000
+  const CHUNK = 1000
+  let inserted = 0
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const chunk = data.slice(i, i + CHUNK)
+    await prisma.hsnSacCode.createMany({
+      data: chunk.map(r => ({ code: r.code, description: r.description, codeType: r.codeType })),
+      skipDuplicates: true,
+    })
+    inserted += chunk.length
+  }
+
+  sendSuccess(res, { message: `Seeded ${inserted} HSN/SAC codes`, count: inserted }, 'Seeded', 201)
+})
+
+// ═══════════════════════════════════════════════════════════════
+// ITEM TAX HISTORY — date-wise GST rate applicability
+// ═══════════════════════════════════════════════════════════════
+
+// GET /masters/items/:itemId/tax-history
+mastersRouter.get('/items/:itemId/tax-history', async (req: Request, res: Response) => {
+  const history = await prisma.itemTaxHistory.findMany({
+    where: { itemId: req.params.itemId },
+    include: { taxMaster: { select: { id: true, name: true, gstRate: true, cgstRate: true, sgstRate: true, igstRate: true, cessRate: true } } },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+  sendSuccess(res, history)
+})
+
+// POST /masters/items/:itemId/tax-history — add a new date-wise rate change
+mastersRouter.post('/items/:itemId/tax-history', async (req: Request, res: Response) => {
+  const body = z.object({
+    taxMasterId: z.string().uuid(),
+    effectiveFrom: z.string().min(1),
+    notificationNo: z.string().optional(),
+    remarks: z.string().optional(),
+  }).parse(req.body)
+
+  const item = await prisma.item.findFirst({ where: { id: req.params.itemId, companyId: req.companyId } })
+  if (!item) throw new NotFoundError('Item')
+
+  const taxMaster = await prisma.taxMaster.findFirst({ where: { id: body.taxMasterId, companyId: req.companyId } })
+  if (!taxMaster) throw new NotFoundError('Tax Master')
+
+  const effectiveFrom = new Date(body.effectiveFrom)
+
+  // Close previous active history record (set effectiveTo = effectiveFrom - 1 day)
+  const prevActive = await prisma.itemTaxHistory.findFirst({
+    where: { itemId: req.params.itemId, effectiveTo: null },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+  if (prevActive) {
+    const closingDate = new Date(effectiveFrom)
+    closingDate.setDate(closingDate.getDate() - 1)
+    await prisma.itemTaxHistory.update({
+      where: { id: prevActive.id },
+      data: { effectiveTo: closingDate },
+    })
+  }
+
+  // Create new history entry
+  const entry = await prisma.itemTaxHistory.create({
+    data: {
+      companyId: req.companyId,
+      itemId: req.params.itemId,
+      taxMasterId: body.taxMasterId,
+      effectiveFrom,
+      effectiveTo: null,
+      gstRate: taxMaster.gstRate,
+      cessRate: taxMaster.cessRate,
+      notificationNo: body.notificationNo,
+      remarks: body.remarks,
+      createdBy: req.user.userId,
+    },
+  })
+
+  // Update item's current gstRate + taxMasterId to the new rate
+  await prisma.item.update({
+    where: { id: req.params.itemId },
+    data: {
+      taxMasterId: body.taxMasterId,
+      gstRate: taxMaster.gstRate,
+      cessRate: taxMaster.cessRate,
+    },
+  })
+
+  sendSuccess(res, entry, 'Tax rate history added', 201)
+})
+
+// DELETE /masters/items/:itemId/tax-history/:historyId
+mastersRouter.delete('/items/:itemId/tax-history/:historyId', async (req: Request, res: Response) => {
+  const entry = await prisma.itemTaxHistory.findFirst({
+    where: { id: req.params.historyId, itemId: req.params.itemId },
+  })
+  if (!entry) throw new NotFoundError('Tax history entry')
+  await prisma.itemTaxHistory.delete({ where: { id: req.params.historyId } })
+  sendSuccess(res, null, 'Tax history entry deleted')
+})
+
+// ─── Utility: Get effective tax rate for an item on a specific date ──────────
+// GET /masters/items/:itemId/tax-rate?date=2025-06-01
+mastersRouter.get('/items/:itemId/tax-rate', async (req: Request, res: Response) => {
+  const dateStr = req.query.date as string
+  const date = dateStr ? new Date(dateStr) : new Date()
+
+  const history = await prisma.itemTaxHistory.findFirst({
+    where: {
+      itemId: req.params.itemId,
+      effectiveFrom: { lte: date },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: date } }],
+    },
+    include: { taxMaster: true },
+    orderBy: { effectiveFrom: 'desc' },
+  })
+
+  if (history) {
+    return sendSuccess(res, {
+      gstRate: Number(history.gstRate),
+      cessRate: Number(history.cessRate),
+      taxMaster: history.taxMaster,
+      source: 'history',
+    })
+  }
+
+  // Fallback to item's current rate
+  const item = await prisma.item.findFirst({
+    where: { id: req.params.itemId, companyId: req.companyId },
+    include: { taxMaster: true },
+  })
+  if (!item) throw new NotFoundError('Item')
+
+  sendSuccess(res, {
+    gstRate: Number(item.gstRate),
+    cessRate: Number(item.cessRate),
+    taxMaster: item.taxMaster,
+    source: 'current',
+  })
+})
+

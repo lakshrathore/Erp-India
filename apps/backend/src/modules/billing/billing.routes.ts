@@ -378,9 +378,16 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
     })
 
     // ── Inventory movements (for DRAFT → we create movements on POST) ───────
-    // Only for voucher types that move stock
+    // Only for voucher types that move stock, and only for Goods (not Services)
     if (INVENTORY_IN_TYPES.has(data.voucherType)) {
       for (const item of processedItems) {
+        // Skip stock movement for service items
+        const itemMeta = await tx.item.findUnique({
+          where: { id: item.itemId },
+          select: { isService: true, maintainStock: true },
+        })
+        if (itemMeta?.isService || !itemMeta?.maintainStock) continue
+
         await addStockBatch(tx, {
           itemId: item.itemId,
           variantId: item.variantId,
@@ -453,19 +460,21 @@ billingRouter.post('/vouchers/:id/post', async (req: Request, res: Response) => 
       })
     }
 
-    // FIFO consumption for sale-type vouchers
+    // FIFO consumption for sale-type vouchers (Goods only — skip Services)
     if (INVENTORY_OUT_TYPES.has(voucher.voucherType)) {
       for (const item of voucher.items) {
-        // Check if item maintains stock
-        const itemRecord = await tx.item.findUnique({ where: { id: item.itemId }, select: { maintainStock: true, saleRate: true } })
-        if (!itemRecord?.maintainStock) continue
+        // Check if item maintains stock AND is not a service
+        const itemRecord = await tx.item.findUnique({
+          where: { id: item.itemId },
+          select: { maintainStock: true, isService: true, saleRate: true },
+        })
+        if (!itemRecord?.maintainStock || itemRecord?.isService) continue
 
         let totalCost = 0
         try {
           const consumed = await consumeFIFO(tx, item.itemId, item.variantId, null, Number(item.qty), voucher.date)
           totalCost = consumed.reduce((s, c) => s + c.value, 0)
         } catch (fifoErr: any) {
-          // If insufficient stock, use sale rate as cost (allow negative stock)
           totalCost = Number(item.rate) * Number(item.qty)
         }
 

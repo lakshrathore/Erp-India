@@ -9,7 +9,7 @@ const MAPPING_DEFINITIONS = [
   {
     group: 'Sales',
     items: [
-      { key: 'sale_sales_ledger', label: 'Sales Ledger', desc: 'Default sales account for sale invoices', defaultName: 'Sales' },
+      { key: 'sale_sales_ledger', label: 'Sales Ledger (Goods)', desc: 'Default sales account for goods sale invoices', defaultName: 'Sales' },
       { key: 'sale_party_ledger', label: 'Party (Debtors) Group', desc: 'Ledger group for customer receivables', defaultName: 'Sundry Debtors' },
       { key: 'sale_discount_ledger', label: 'Discount Allowed', desc: 'Discount given to customers', defaultName: 'Discount Allowed' },
       { key: 'sale_roundoff_ledger', label: 'Round Off', desc: 'Sale invoice round off account', defaultName: 'Round Off' },
@@ -18,9 +18,16 @@ const MAPPING_DEFINITIONS = [
   {
     group: 'Purchase',
     items: [
-      { key: 'purchase_purchase_ledger', label: 'Purchase Ledger', desc: 'Default purchase account for purchase invoices', defaultName: 'Purchase' },
+      { key: 'purchase_purchase_ledger', label: 'Purchase Ledger (Goods)', desc: 'Default purchase account for goods purchase invoices', defaultName: 'Purchase' },
       { key: 'purchase_party_ledger', label: 'Party (Creditors) Group', desc: 'Ledger group for vendor payables', defaultName: 'Sundry Creditors' },
       { key: 'purchase_discount_ledger', label: 'Discount Received', desc: 'Discount received from vendors', defaultName: 'Discount Received' },
+    ],
+  },
+  {
+    group: 'Service Sales & Purchase (Default)',
+    items: [
+      { key: 'service_income_ledger', label: 'Service Income (Default)', desc: 'Default income ledger when a service item is sold. Can be overridden per item in Item Master.', defaultName: 'Service Income' },
+      { key: 'service_expense_ledger', label: 'Service Expense (Default)', desc: 'Default expense ledger when a service item is purchased. Can be overridden per item in Item Master.', defaultName: 'Service Charges' },
     ],
   },
   {

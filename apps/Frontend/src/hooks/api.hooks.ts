@@ -208,11 +208,56 @@ export function useUpdateLedger(id: string) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TAX / GODOWNS / NUMBER SERIES
+// TAX / GODOWNS / UNITS / NUMBER SERIES
 // ═══════════════════════════════════════════════════════════════
 export function useTaxMasters() {
   const cid = useCompanyId()
   return useQuery({ queryKey: ['tax-masters'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/tax-masters'); return data.data }, enabled: !!cid })
+}
+
+export function useCreateTaxMaster() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: any) => { const { data } = await api.post<ApiResponse<any>>('/masters/tax-masters', payload); return data.data },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tax-masters'] }),
+  })
+}
+
+export function useUpdateTaxMaster(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: any) => { const { data } = await api.put<ApiResponse<any>>(`/masters/tax-masters/${id}`, payload); return data.data },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tax-masters'] }),
+  })
+}
+
+export function useDeleteTaxMaster() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => { await api.delete(`/masters/tax-masters/${id}`) },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['tax-masters'] }),
+  })
+}
+
+export function useUnits() {
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['units'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/units'); return data.data }, enabled: !!cid })
+}
+
+export function useCreateUnit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: { name: string; symbol: string }) => { const { data } = await api.post<ApiResponse<any>>('/masters/units', payload); return data.data },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['units'] }),
+  })
+}
+
+export function useDeleteUnit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => { await api.delete(`/masters/units/${id}`) },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['units'] }),
+  })
 }
 
 export function useGodowns() {
