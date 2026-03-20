@@ -146,27 +146,39 @@ export function getPagination(query: { page?: string; limit?: string }) {
 // ─── GST Calculation ──────────────────────────────────────────────────────────
 
 export function calculateGST(
-  taxableAmount: number,
+  amountIn: number,
   gstRate: number,
   taxType: 'CGST_SGST' | 'IGST' | 'EXEMPT' | 'NIL_RATED' | 'NON_GST',
-  cessRate = 0
+  cessRate = 0,
+  inclusive = false  // true = rate already includes GST
 ) {
-  if (taxType === 'EXEMPT' || taxType === 'NIL_RATED' || taxType === 'NON_GST') {
-    return { cgst: 0, sgst: 0, igst: 0, cess: 0, total: taxableAmount }
+  if (taxType === 'EXEMPT' || taxType === 'NIL_RATED' || taxType === 'NON_GST' || gstRate === 0) {
+    return { cgst: 0, sgst: 0, igst: 0, cess: 0, total: amountIn, taxableAmount: amountIn }
   }
 
-  const cess = (taxableAmount * cessRate) / 100
+  // Inclusive: reverse-calculate taxable amount
+  const taxableAmount = inclusive
+    ? Math.round(amountIn / (1 + gstRate / 100) * 100) / 100
+    : amountIn
+
+  const cess = Math.round((taxableAmount * cessRate) / 100 * 100) / 100
 
   if (taxType === 'IGST') {
-    const igst = (taxableAmount * gstRate) / 100
-    return { cgst: 0, sgst: 0, igst, cess, total: taxableAmount + igst + cess }
+    const igst = Math.round((taxableAmount * gstRate) / 100 * 100) / 100
+    return {
+      cgst: 0, sgst: 0, igst, cess, taxableAmount,
+      total: inclusive ? amountIn + cess : taxableAmount + igst + cess
+    }
   }
 
   // CGST + SGST (half-half)
   const halfRate = gstRate / 2
-  const cgst = (taxableAmount * halfRate) / 100
+  const cgst = Math.round((taxableAmount * halfRate) / 100 * 100) / 100
   const sgst = cgst
-  return { cgst, sgst, igst: 0, cess, total: taxableAmount + cgst + sgst + cess }
+  return {
+    cgst, sgst, igst: 0, cess, taxableAmount,
+    total: inclusive ? amountIn + cess : taxableAmount + cgst + sgst + cess
+  }
 }
 
 // ─── Round Off (nearest 50 paise or rupee) ────────────────────────────────────

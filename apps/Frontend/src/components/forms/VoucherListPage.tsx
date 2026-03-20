@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Filter, Download, Eye, FileText, Printer, X, CheckCircle2, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Eye, FileText, Printer, X, CheckCircle2, XCircle, Filter } from 'lucide-react'
 import dayjs from 'dayjs'
-import { useQuery } from '@tanstack/react-query'
-import { api } from '../../lib/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api, extractError } from '../../lib/api'
 import { formatINR, formatDate, getFinancialYear } from '../../lib/india'
 import { Button, Badge, EmptyState, Spinner, PageHeader, Select } from '../../components/ui'
 import { useAuthStore } from '../../stores/auth.store'
@@ -18,211 +18,383 @@ interface VoucherListPageProps {
 }
 
 const STATUS_BADGE: Record<string, any> = {
-  POSTED: 'success',
-  DRAFT: 'outline',
-  CANCELLED: 'destructive',
+  POSTED: 'success', DRAFT: 'outline', CANCELLED: 'destructive',
 }
+
+function getFYDates(fy: string) {
+  // Handle both "25-26" and "2025-26" formats
+  const [startPart] = fy.split('-')
+  const rawYear = parseInt(startPart)
+  // If 2-digit year, convert to full year (25 → 2025)
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear
+  return {
+    from: `${year}-04-01`,
+    to: `${year + 1}-03-31`,
+  }
+}
+
+// ─── Cancel Modal ─────────────────────────────────────────────────────────────
+
+function CancelModal({ voucherId, voucherNumber, onClose, onDone }: {
+  voucherId: string; voucherNumber: string; onClose: () => void; onDone: () => void
+}) {
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState('')
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      await api.post(`/billing/vouchers/${voucherId}/cancel`, { reason })
+    },
+    onSuccess: () => { onDone(); onClose() },
+    onError: (e) => setError(extractError(e)),
+  })
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+      <div className="bg-card border border-border rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-sm p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+            <XCircle size={20} className="text-destructive" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base">Cancel Voucher?</h3>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              <span className="font-mono font-medium">{voucherNumber}</span> will be cancelled and stock/ledger reversed.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <label className="text-xs font-medium text-foreground block mb-1.5">
+            Reason for Cancellation <span className="text-destructive">*</span>
+          </label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="Enter reason (e.g. Wrong party, Wrong amount, Duplicate entry...)"
+            rows={3}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        {error && (
+          <div className="mb-3 text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button variant="destructive" className="flex-1" loading={cancelMutation.isPending}
+            disabled={!reason.trim()} onClick={() => cancelMutation.mutate()}>
+            <XCircle size={14} /> Confirm Cancel
+          </Button>
+          <Button variant="outline" onClick={onClose} disabled={cancelMutation.isPending}>
+            Keep
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main List Page ───────────────────────────────────────────────────────────
 
 export default function VoucherListPage({ voucherType, title, newPath, breadcrumbs = [] }: VoucherListPageProps) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const { activeCompany, activeFY } = useAuthStore()
   const today = dayjs()
-  const fyDates = activeFY ? getFYDates(activeFY) : { from: today.subtract(365, 'day').format('YYYY-MM-DD'), to: today.format('YYYY-MM-DD') }
+  const fyDates = activeFY
+    ? getFYDates(activeFY)
+    : { from: today.subtract(365, 'day').format('YYYY-MM-DD'), to: today.format('YYYY-MM-DD') }
 
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
   const [from, setFrom] = useState(fyDates.from)
   const [to, setTo] = useState(fyDates.to)
   const [page, setPage] = useState(1)
+  const [showFilters, setShowFilters] = useState(false)
+  const [cancelId, setCancelId] = useState<{ id: string; number: string } | null>(null)
   const limit = 50
 
+  const companyId = activeCompany?.companyId || ''
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['vouchers', voucherType, { search, status, from, to, page }],
+    queryKey: ['vouchers', voucherType, search, status, from, to, page, companyId],
     queryFn: async () => {
-      const params: any = { voucherType, from, to, page, limit }
-      if (search) params.search = search
-      if (status) params.status = status
-      const { data } = await api.get('/billing/vouchers', { params })
+      const { data } = await api.get('/billing/vouchers', {
+        params: { voucherType, search, status, from, to, page, limit },
+      })
       return data
     },
-    enabled: !!activeCompany,
+    enabled: !!companyId,
   })
 
   const vouchers: any[] = data?.data || []
   const pagination = data?.pagination
+  const totalAmount = vouchers.filter(v => v.status === 'POSTED').reduce((s, v) => s + Number(v.grandTotal || 0), 0)
+  const postedCount = vouchers.filter(v => v.status === 'POSTED').length
 
-  // Summary totals from current page
-  const totalAmount = vouchers.reduce((s: number, v: any) => s + Number(v.grandTotal || 0), 0)
-  const postedCount = vouchers.filter((v: any) => v.status === 'POSTED').length
+  const hasBalance = ['SALE', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(voucherType)
 
   return (
     <div>
       <PageHeader
         title={title}
-        subtitle={activeFY ? `FY ${activeFY}` : ''}
-        breadcrumbs={[{ label: 'Billing' }, { label: title }]}
+        breadcrumbs={[{ label: title }]}
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Download size={14} /> Export
-            </Button>
-            <Button onClick={() => navigate(newPath)}>
-              <Plus size={15} /> New {title.replace(/s$/, '')}
-            </Button>
-          </div>
+          <Button onClick={() => navigate(newPath)}>
+            <Plus size={15} /> New
+          </Button>
         }
       />
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            className="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="Search voucher no, party..."
-            value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <span className="text-muted-foreground text-sm">to</span>
-          <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-        </div>
-        <Select
-          options={[
-            { value: '', label: 'All Status' },
-            { value: 'DRAFT', label: 'Draft' },
-            { value: 'POSTED', label: 'Posted' },
-            { value: 'CANCELLED', label: 'Cancelled' },
-          ]}
-          value={status}
-          onChange={e => { setStatus(e.target.value); setPage(1) }}
-          className="w-32"
-        />
-      </div>
+      {/* ── Filters ───────────────────────────────────────────────────────── */}
+      <div className="mb-4 space-y-3">
 
-      {/* Summary strip */}
-      {vouchers.length > 0 && (
-        <div className="flex items-center gap-6 bg-muted/40 rounded-lg px-4 py-2.5 mb-4 text-sm">
-          <span className="text-muted-foreground">{pagination?.total || vouchers.length} vouchers</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="font-medium">{formatINR(totalAmount)}</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="text-success">{postedCount} posted</span>
-          {(pagination?.total || 0) - postedCount > 0 && (
-            <>
-              <span className="text-muted-foreground">·</span>
-              <span className="text-warning">{(pagination?.total || vouchers.length) - postedCount} draft/cancelled</span>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Table */}
-      <div className="bg-card border border-border rounded-lg overflow-hidden">
-        {isLoading ? (
-          <div className="flex justify-center py-20"><Spinner /></div>
-        ) : vouchers.length === 0 ? (
-          <EmptyState
-            icon={<FileText size={40} />}
-            title={`No ${title.toLowerCase()} found`}
-            description="Create your first entry to get started"
-            action={<Button onClick={() => navigate(newPath)}><Plus size={15} /> New {title.replace(/s$/, '')}</Button>}
-          />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="erp-table">
-              <thead>
-                <tr>
-                  <th>Voucher No</th>
-                  <th>Date</th>
-                  <th>Party</th>
-                  <th>Narration</th>
-                  <th className="text-right">Taxable</th>
-                  <th className="text-right">GST</th>
-                  <th className="text-right">Grand Total</th>
-                  {['SALE', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(voucherType) && (
-                    <th className="text-right">Balance Due</th>
-                  )}
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {vouchers.map((v: any) => {
-                  const gstAmt = Number(v.cgstAmount) + Number(v.sgstAmount) + Number(v.igstAmount)
-                  return (
-                    <tr key={v.id} className="cursor-pointer"
-                      onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
-                      <td>
-                        <span className="font-mono text-xs font-medium">{v.voucherNumber}</span>
-                      </td>
-                      <td className="text-sm whitespace-nowrap">{formatDate(v.date)}</td>
-                      <td className="text-sm max-w-[160px] truncate">{v.party?.name || '—'}</td>
-                      <td className="text-xs text-muted-foreground max-w-[120px] truncate">{v.narration || '—'}</td>
-                      <td className="amount-col text-sm">{formatINR(v.taxableAmount)}</td>
-                      <td className="amount-col text-sm text-muted-foreground">{formatINR(gstAmt)}</td>
-                      <td className="amount-col text-sm font-medium">{formatINR(v.grandTotal)}</td>
-                      {['SALE', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE'].includes(voucherType) && (
-                        <td className="amount-col text-sm">
-                          {Number(v.balanceDue) > 0 ? (
-                            <span className="amount-debit">{formatINR(v.balanceDue)}</span>
-                          ) : (
-                            <span className="text-success text-xs">Settled</span>
-                          )}
-                        </td>
-                      )}
-                      <td>
-                        <Badge variant={STATUS_BADGE[v.status] || 'default'} className="text-[10px]">
-                          {v.status}
-                        </Badge>
-                      </td>
-                      <td onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon-sm" title="View"
-                            onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
-                            <Eye size={13} />
-                          </Button>
-                          <Button variant="ghost" size="icon-sm" title="Print"
-                            onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.id}`, '_blank')}>
-                            <Printer size={13} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+        {/* Search + Filter toggle */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder={`Search ${title.toLowerCase()}...`}
+              className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
           </div>
-        )}
+          <Button variant="outline" size="sm" onClick={() => setShowFilters(s => !s)}>
+            <Filter size={14} /> {showFilters ? 'Hide' : 'Filters'}
+          </Button>
+          <Button onClick={() => navigate(newPath)} className="sm:hidden">
+            <Plus size={14} />
+          </Button>
+        </div>
 
-        {pagination && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-border">
-            <span className="text-xs text-muted-foreground">
-              Showing {(page - 1) * limit + 1}–{Math.min(page * limit, pagination.total)} of {pagination.total}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-              <span className="text-xs text-muted-foreground">{page} / {pagination.totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
+        {/* Expanded filters */}
+        {showFilters && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-3 bg-muted/30 rounded-lg">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">From</label>
+              <input type="date" value={from} onChange={e => { setFrom(e.target.value); setPage(1) }}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">To</label>
+              <input type="date" value={to} onChange={e => { setTo(e.target.value); setPage(1) }}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
+              <select value={status} onChange={e => { setStatus(e.target.value); setPage(1) }}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring">
+                <option value="">All Status</option>
+                <option value="DRAFT">Draft</option>
+                <option value="POSTED">Posted</option>
+                <option value="CANCELLED">Cancelled</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <Button size="sm" variant="outline" className="w-full h-8 text-xs"
+                onClick={() => { setSearch(''); setStatus(''); setFrom(fyDates.from); setTo(fyDates.to); setPage(1) }}>
+                Reset
+              </Button>
             </div>
           </div>
         )}
+
+        {/* Summary strip */}
+        {vouchers.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 bg-muted/40 rounded-lg px-3 py-2 text-xs">
+            <span className="text-muted-foreground">{pagination?.total || vouchers.length} records</span>
+            <span className="text-muted-foreground hidden sm:inline">·</span>
+            <span className="font-semibold">{formatINR(totalAmount)}</span>
+            <span className="text-muted-foreground hidden sm:inline">·</span>
+            <span className="text-success">{postedCount} posted</span>
+          </div>
+        )}
       </div>
+
+      {/* ── Table / Cards ─────────────────────────────────────────────────── */}
+      {isLoading ? (
+        <div className="flex justify-center py-20"><Spinner /></div>
+      ) : vouchers.length === 0 ? (
+        <EmptyState
+          icon={<FileText size={40} />}
+          title={`No ${title.toLowerCase()} found`}
+          description="Create your first entry to get started"
+          action={<Button onClick={() => navigate(newPath)}><Plus size={15} /> New {title.replace(/s$/, '')}</Button>}
+        />
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block bg-card border border-border rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="erp-table">
+                <thead>
+                  <tr>
+                    <th>Voucher No</th>
+                    <th>Date</th>
+                    <th>Party</th>
+                    <th className="hidden lg:table-cell">Narration</th>
+                    <th className="text-right">Amount</th>
+                    <th className="text-right hidden sm:table-cell">GST</th>
+                    <th className="text-right">Total</th>
+                    {hasBalance && <th className="text-right hidden lg:table-cell">Balance</th>}
+                    <th>Status</th>
+                    <th className="w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vouchers.map((v: any) => {
+                    const gstAmt = Number(v.cgstAmount) + Number(v.sgstAmount) + Number(v.igstAmount)
+                    const isCancelled = v.status === 'CANCELLED'
+                    const isPosted = v.status === 'POSTED'
+                    return (
+                      <tr key={v.id}
+                        className={`cursor-pointer ${isCancelled ? 'opacity-60' : ''}`}
+                        onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
+                        <td>
+                          <span className="font-mono text-xs font-semibold">{v.voucherNumber}</span>
+                          {isCancelled && <div className="text-[10px] text-destructive">CANCELLED</div>}
+                        </td>
+                        <td className="whitespace-nowrap">{formatDate(v.date)}</td>
+                        <td className="max-w-[140px] truncate">{v.party?.name || '—'}</td>
+                        <td className="hidden lg:table-cell text-xs text-muted-foreground max-w-[120px] truncate">
+                          {v.narration || '—'}
+                        </td>
+                        <td className="amount-col">{formatINR(v.taxableAmount)}</td>
+                        <td className="amount-col text-muted-foreground hidden sm:table-cell">
+                          {formatINR(gstAmt)}
+                        </td>
+                        <td className="amount-col font-semibold">{formatINR(v.grandTotal)}</td>
+                        {hasBalance && (
+                          <td className="amount-col hidden lg:table-cell">
+                            {Number(v.balanceDue) > 0
+                              ? <span className="text-destructive font-mono">{formatINR(v.balanceDue)}</span>
+                              : <span className="text-success text-xs">Settled</span>}
+                          </td>
+                        )}
+                        <td>
+                          <Badge variant={STATUS_BADGE[v.status] || 'default'} className="text-[10px]">
+                            {v.status}
+                          </Badge>
+                        </td>
+                        <td onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon-sm" title="View"
+                              onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
+                              <Eye size={13} />
+                            </Button>
+                            <Button variant="ghost" size="icon-sm" title="Print"
+                              onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.id}`, '_blank')}>
+                              <Printer size={13} />
+                            </Button>
+                            {/* Cancel button — only for POSTED/DRAFT */}
+                            {!isCancelled && (
+                              <Button variant="ghost" size="icon-sm" title="Cancel"
+                                className="hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => setCancelId({ id: v.id, number: v.voucherNumber })}>
+                                <XCircle size={13} />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="md:hidden space-y-2">
+            {vouchers.map((v: any) => {
+              const isCancelled = v.status === 'CANCELLED'
+              return (
+                <div key={v.id}
+                  className={`bg-card border border-border rounded-xl p-4 ${isCancelled ? 'opacity-60' : ''}`}>
+                  {/* Top row */}
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs font-bold">{v.voucherNumber}</span>
+                        <Badge variant={STATUS_BADGE[v.status] || 'default'} className="text-[9px]">
+                          {v.status}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{formatDate(v.date)}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold font-mono text-sm">{formatINR(v.grandTotal)}</div>
+                      {hasBalance && Number(v.balanceDue) > 0 && (
+                        <div className="text-xs text-destructive font-mono">{formatINR(v.balanceDue)} due</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Party */}
+                  {v.party?.name && (
+                    <div className="text-sm font-medium mb-1 truncate">{v.party.name}</div>
+                  )}
+                  {v.narration && (
+                    <div className="text-xs text-muted-foreground truncate mb-2">{v.narration}</div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+                    <button
+                      onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
+                      <Eye size={12} /> View
+                    </button>
+                    <button
+                      onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.id}`, '_blank')}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-muted hover:bg-muted/70 transition-colors">
+                      <Printer size={12} /> Print
+                    </button>
+                    {!isCancelled && (
+                      <button
+                        onClick={() => setCancelId({ id: v.id, number: v.voucherNumber })}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors">
+                        <XCircle size={12} /> Cancel
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Pagination */}
+          {pagination && pagination.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+              <span className="text-xs text-muted-foreground">
+                Page {page} of {pagination.totalPages} · {pagination.total} records
+              </span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
+                  Previous
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= pagination.totalPages} onClick={() => setPage(p => p + 1)}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Cancel Modal */}
+      {cancelId && (
+        <CancelModal
+          voucherId={cancelId.id}
+          voucherNumber={cancelId.number}
+          onClose={() => setCancelId(null)}
+          onDone={() => { refetch(); setCancelId(null) }}
+        />
+      )}
     </div>
   )
-}
-
-// Helpers
-function getFYDates(fy: string) {
-  const parts = fy.split('-')
-  const startYear = 2000 + parseInt(parts[0])
-  return {
-    from: `${startYear}-04-01`,
-    to: `${startYear + 1}-03-31`,
-  }
 }

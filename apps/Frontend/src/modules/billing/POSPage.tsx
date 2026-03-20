@@ -27,15 +27,18 @@ const PAYMENT_MODES = [
   { value: 'CARD', label: 'Card', icon: CreditCard, color: 'text-purple-600' },
 ]
 
-function calcCart(items: CartItem[]) {
-  let subtotal = 0, cgst = 0, sgst = 0, igst = 0, taxable = 0
+function calcCart(items: CartItem[], inclusive = false) {
+  let subtotal = 0, cgst = 0, sgst = 0, igst = 0, taxable = 0, lineTotalSum = 0
   for (const item of items) {
-    const c = calculateLineGST(item.qty, item.rate, 0, item.gstRate, item.taxType as any)
+    const c = calculateLineGST(item.qty, item.rate, 0, item.gstRate, item.taxType as any, 0, inclusive)
     subtotal += item.qty * item.rate
     taxable += c.taxableAmount
     cgst += c.cgstAmount; sgst += c.sgstAmount; igst += c.igstAmount
+    lineTotalSum += c.lineTotal
   }
-  const beforeRound = taxable + cgst + sgst + igst
+  // Inclusive: grand = lineTotals (rate already has GST inside)
+  // Exclusive: grand = taxable + taxes
+  const beforeRound = inclusive ? lineTotalSum : (taxable + cgst + sgst + igst)
   const ro = roundOff(beforeRound)
   return { subtotal, taxable, cgst, sgst, igst, roundOff: ro, grand: Math.round(beforeRound) }
 }
@@ -112,6 +115,7 @@ export default function POSPage() {
   const [savedBill, setSavedBill] = useState<any>(null)
   const [error, setError] = useState('')
   const [variantPickerItem, setVariantPickerItem] = useState<any>(null)
+  const [isInclusive, setIsInclusive] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { searchRef.current?.focus() }, [])
@@ -129,7 +133,7 @@ export default function POSPage() {
     return () => clearTimeout(t)
   }, [search])
 
-  const t = calcCart(cart)
+  const t = calcCart(cart, isInclusive)
 
   const handleItemClick = async (item: any) => {
     // Fetch full item to check variants
@@ -197,6 +201,7 @@ export default function POSPage() {
         voucherType: 'SALE',
         date: new Date().toISOString().split('T')[0],
         saleType: 'REGULAR',
+        isInclusive,
         placeOfSupply: '08',
         paymentMode: payMode,
         narration: `POS Sale — ${payMode}`,
@@ -259,9 +264,10 @@ export default function POSPage() {
       {/* ── LEFT: Item search + grid ────────────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0 border-r border-border">
 
-        {/* Search */}
+        {/* Search + Inclusive toggle */}
         <div className="p-3 border-b border-border flex-shrink-0">
-          <div className="relative">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               ref={searchRef}
@@ -270,6 +276,16 @@ export default function POSPage() {
               className="h-10 w-full rounded-xl border border-input bg-background pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               placeholder="Search item by name or code..."
             />
+            </div>
+            {/* Inclusive/Exclusive toggle */}
+            <label className="flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0 select-none">
+              <div className="relative">
+                <input type="checkbox" checked={isInclusive} onChange={e => setIsInclusive(e.target.checked)} className="sr-only peer" />
+                <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-primary transition-colors" />
+                <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+              </div>
+              <span className="text-xs font-medium">{isInclusive ? 'GST Incl.' : 'GST Excl.'}</span>
+            </label>
           </div>
         </div>
 

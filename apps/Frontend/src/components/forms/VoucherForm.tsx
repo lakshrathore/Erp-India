@@ -85,6 +85,7 @@ const voucherFormSchema = z.object({
   lut: z.string().optional(),
   lutDate: z.string().optional(),
   isReverseCharge: z.boolean().default(false),
+  isInclusive: z.boolean().default(false),
   items: z.array(itemRowSchema).min(1),
   roundOff: z.coerce.number().default(0),
 })
@@ -93,9 +94,9 @@ type VoucherFormValues = z.infer<typeof voucherFormSchema>
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function calcLine(qty: number, rate: number, d1: number, d2: number, d3: number, gstRate: number, taxType: string) {
+function calcLine(qty: number, rate: number, d1: number, d2: number, d3: number, gstRate: number, taxType: string, inclusive = false) {
   const netRate = rate * (1 - d1 / 100) * (1 - d2 / 100) * (1 - d3 / 100)
-  return calculateLineGST(qty, netRate, 0, gstRate, taxType as any)
+  return calculateLineGST(qty, netRate, 0, gstRate, taxType as any, 0, inclusive)
 }
 
 // ─── Party Search ─────────────────────────────────────────────────────────────
@@ -507,7 +508,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
       date: dayjs().format('YYYY-MM-DD'),
       branchId: '', partyId: '', narration: '',
       placeOfSupply: '08', saleType: 'REGULAR',
-      lut: '', isReverseCharge: false,
+      lut: '', isReverseCharge: false, isInclusive: false,
       items: [{
         itemId: '', variantId: null, unit: 'PCS',
         qty: 1, freeQty: 0, rate: 0,
@@ -547,6 +548,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
   const { fields, append, remove } = useFieldArray({ control: form.control, name: 'items' })
   const watchedItems = form.watch('items')
   const saleType = form.watch('saleType')
+  const isInclusive = form.watch('isInclusive')
   const zeroGST = ZERO_GST_TYPES.includes(saleType)
 
   useEffect(() => {
@@ -556,20 +558,23 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
   // ── Totals ─────────────────────────────────────────────────────────────────
 
   const totals = useCallback(() => {
-    let subtotal = 0, taxable = 0, cgst = 0, sgst = 0, igst = 0, cess = 0
+    let subtotal = 0, taxable = 0, cgst = 0, sgst = 0, igst = 0, cess = 0, lineTotalSum = 0
     for (const row of watchedItems) {
       if (!row.qty || !row.rate) continue
       const c = calcLine(Number(row.qty), Number(row.rate),
         Number(row.discountPct || 0), Number(row.discount2Pct || 0), Number(row.discount3Pct || 0),
-        Number(row.gstRate || 0), row.taxType)
+        Number(row.gstRate || 0), row.taxType, isInclusive)
       subtotal += Number(row.qty) * Number(row.rate)
       taxable += c.taxableAmount
       cgst += c.cgstAmount; sgst += c.sgstAmount; igst += c.igstAmount; cess += c.cessAmount
+      lineTotalSum += c.lineTotal
     }
-    const beforeRound = taxable + cgst + sgst + igst + cess
+    // Inclusive: grand = sum of lineTotals (rate already has GST)
+    // Exclusive: grand = taxable + all taxes
+    const beforeRound = isInclusive ? lineTotalSum : (taxable + cgst + sgst + igst + cess)
     const ro = roundOff(beforeRound)
     return { subtotal, taxable, cgst, sgst, igst, cess, roundOff: ro, grand: Math.round(beforeRound) }
-  }, [watchedItems])
+  }, [watchedItems, isInclusive])
 
   const t = totals()
   useEffect(() => { form.setValue('roundOff', t.roundOff) }, [t.roundOff])
@@ -619,6 +624,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
     lut: values.lut || null,
     lutDate: values.lutDate || null,
     isReverseCharge: values.isReverseCharge,
+    isInclusive: values.isInclusive,
     isExport: ['EXPORT_WITH_LUT', 'EXPORT_WITHOUT_LUT'].includes(values.saleType),
     items: values.items.map(r => ({
       itemId: r.itemId,
@@ -777,11 +783,28 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
               </div>
             )}
 
-            <div className="flex gap-4 col-span-2 items-center pt-4">
+            <div className="flex gap-6 col-span-2 items-center pt-4 flex-wrap">
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input type="checkbox" {...form.register('isReverseCharge')} className="w-4 h-4 rounded" />
                 Reverse Charge (RCM)
               </label>
+              {!isPurchase && (
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <div className="relative">
+                    <input type="checkbox" {...form.register('isInclusive')} className="sr-only peer" />
+                    <div className="w-9 h-5 bg-muted-foreground/30 rounded-full peer-checked:bg-primary transition-colors" />
+                    <div className="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform peer-checked:translate-x-4" />
+                  </div>
+                  <div>
+                    <span className="text-sm font-medium">
+                      {isInclusive ? 'GST Inclusive' : 'GST Exclusive'}
+                    </span>
+                    <span className="text-xs text-muted-foreground ml-1.5">
+                      {isInclusive ? '(Rate includes GST — back-calculate)' : '(GST added on top of rate)'}
+                    </span>
+                  </div>
+                </label>
+              )}
             </div>
           </div>
         </div>
@@ -832,7 +855,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
                   const calc = (row.qty && row.rate)
                     ? calcLine(Number(row.qty), Number(row.rate),
                         Number(row.discountPct || 0), Number(row.discount2Pct || 0), Number(row.discount3Pct || 0),
-                        Number(row.gstRate || 0), row.taxType)
+                        Number(row.gstRate || 0), row.taxType, isInclusive)
                     : null
 
                   const numInput = (field: any, w = 'w-16') =>
@@ -950,11 +973,11 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
 
           <div className="md:col-span-3 bg-card border border-border rounded-xl p-5 space-y-2 text-sm">
             {[
-              { label: 'Subtotal (Gross)', value: t.subtotal, show: true },
-              { label: 'Taxable Amount', value: t.taxable, show: t.subtotal !== t.taxable },
-              { label: 'CGST', value: t.cgst, show: t.cgst > 0 },
-              { label: 'SGST', value: t.sgst, show: t.sgst > 0 },
-              { label: 'IGST', value: t.igst, show: t.igst > 0 },
+              { label: isInclusive ? 'Total (incl. GST)' : 'Subtotal (Gross)', value: t.subtotal, show: true },
+              { label: 'Taxable (excl. GST)', value: t.taxable, show: isInclusive || t.subtotal !== t.taxable },
+              { label: `CGST${isInclusive ? ' (included)' : ''}`, value: t.cgst, show: t.cgst > 0 },
+              { label: `SGST${isInclusive ? ' (included)' : ''}`, value: t.sgst, show: t.sgst > 0 },
+              { label: `IGST${isInclusive ? ' (included)' : ''}`, value: t.igst, show: t.igst > 0 },
               { label: 'Cess', value: t.cess, show: t.cess > 0 },
               { label: 'Round Off', value: t.roundOff, show: Math.abs(t.roundOff) > 0, prefix: t.roundOff > 0 ? '+' : '' },
             ].filter(r => r.show).map(r => (

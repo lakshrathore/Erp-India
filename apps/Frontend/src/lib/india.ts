@@ -104,41 +104,55 @@ export function calculateLineGST(
   discountPct: number,
   gstRate: number,
   taxType: TaxType,
-  cessRate = 0
+  cessRate = 0,
+  inclusive = false   // NEW: true = GST already included in rate
 ): GSTResult {
   const gross = qty * rate
   const discountAmt = (gross * discountPct) / 100
-  const taxableAmount = gross - discountAmt
+  const grossAfterDisc = gross - discountAmt
+
+  // ── Inclusive: back-calculate taxable from gross ───────────────────────────
+  // Formula: taxableAmount = grossAfterDisc / (1 + gstRate/100)
+  // Example: Rate=118, GST=18% → taxable = 118/1.18 = 100, GST = 18
+  let taxableAmount: number
+  if (inclusive && gstRate > 0 && taxType !== 'EXEMPT' && taxType !== 'NIL_RATED' && taxType !== 'NON_GST') {
+    taxableAmount = grossAfterDisc / (1 + gstRate / 100)
+  } else {
+    taxableAmount = grossAfterDisc
+  }
+  taxableAmount = Math.round(taxableAmount * 100) / 100
 
   if (taxType === 'EXEMPT' || taxType === 'NIL_RATED' || taxType === 'NON_GST') {
     return {
-      taxableAmount, cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0,
+      taxableAmount: grossAfterDisc,
+      cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0,
       igstRate: 0, igstAmount: 0, cessRate: 0, cessAmount: 0,
-      totalTax: 0, lineTotal: taxableAmount,
+      totalTax: 0, lineTotal: grossAfterDisc,
     }
   }
 
-  const cess = (taxableAmount * cessRate) / 100
+  const cess = Math.round((taxableAmount * cessRate) / 100 * 100) / 100
 
   if (taxType === 'IGST') {
-    const igstAmount = (taxableAmount * gstRate) / 100
+    const igstAmount = Math.round((taxableAmount * gstRate) / 100 * 100) / 100
     return {
       taxableAmount, cgstRate: 0, cgstAmount: 0, sgstRate: 0, sgstAmount: 0,
       igstRate: gstRate, igstAmount,
       cessRate, cessAmount: cess,
       totalTax: igstAmount + cess,
-      lineTotal: taxableAmount + igstAmount + cess,
+      // Inclusive: lineTotal = grossAfterDisc (rate already includes tax)
+      lineTotal: inclusive ? grossAfterDisc + cess : taxableAmount + igstAmount + cess,
     }
   }
 
   const halfRate = gstRate / 2
-  const cgstAmount = (taxableAmount * halfRate) / 100
+  const cgstAmount = Math.round((taxableAmount * halfRate) / 100 * 100) / 100
   const sgstAmount = cgstAmount
   return {
     taxableAmount, cgstRate: halfRate, cgstAmount, sgstRate: halfRate, sgstAmount,
     igstRate: 0, igstAmount: 0, cessRate, cessAmount: cess,
     totalTax: cgstAmount + sgstAmount + cess,
-    lineTotal: taxableAmount + cgstAmount + sgstAmount + cess,
+    lineTotal: inclusive ? grossAfterDisc + cess : taxableAmount + cgstAmount + sgstAmount + cess,
   }
 }
 

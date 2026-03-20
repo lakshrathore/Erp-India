@@ -667,6 +667,7 @@ model Voucher {
   placeOfSupply   String?       // state code
   isReverseCharge Boolean       @default(false)
   isExport        Boolean       @default(false)
+  isInclusive     Boolean       @default(false)  // GST inclusive pricing
   exportType      String?       // WITH_PAYMENT, WITHOUT_PAYMENT
   saleType        String?       // REGULAR, EXPORT_WITH_LUT, EXPORT_WITHOUT_LUT, SEZ_WITH_PAYMENT, SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT, B2B, B2C
   lut             String?       // LUT number for exports

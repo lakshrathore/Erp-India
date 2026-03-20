@@ -4,6 +4,14 @@ import { api } from '../../lib/api'
 import { useAuthStore } from '../../stores/auth.store'
 import { StatCard, Card, CardHeader, CardTitle, CardContent, Badge, Button, Spinner } from '../../components/ui'
 import { formatINR, formatDate, getFYLabel } from '../../lib/india'
+
+function parseFYYear(fy: string | null): { from: string; to: string } | null {
+  if (!fy) return null
+  const [startPart] = fy.split('-')
+  const raw = parseInt(startPart)
+  const year = raw < 100 ? 2000 + raw : raw
+  return { from: `${year}-04-01`, to: `${year + 1}-03-31` }
+}
 import {
   TrendingUp, TrendingDown, IndianRupee, Package, Users,
   FileText, ArrowUpRight, AlertTriangle,

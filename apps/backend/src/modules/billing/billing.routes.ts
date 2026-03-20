@@ -48,6 +48,7 @@ const voucherSchema = z.object({
   placeOfSupply: z.string().optional(),
   isReverseCharge: z.boolean().default(false),
   isExport: z.boolean().default(false),
+  isInclusive: z.boolean().default(false),  // GST inclusive pricing
   saleType: z.string().optional().nullable(),
   lut: z.string().optional().nullable(),
   lutDate: z.string().optional().nullable(),
@@ -83,13 +84,19 @@ billingRouter.get('/vouchers', async (req: Request, res: Response) => {
   const { voucherType, partyId, status, from, to, search } = req.query
 
   const where: any = { companyId: req.companyId }
-  if (voucherType) where.voucherType = voucherType
+  if (voucherType) where.voucherType = voucherType as any
   if (partyId) where.partyId = partyId
-  if (status) where.status = status
+  if (status) where.status = status as any
   if (from || to) {
     where.date = {}
-    if (from) where.date.gte = new Date(String(from))
-    if (to) where.date.lte = new Date(String(to))
+    if (from) {
+      const fromDate = new Date(String(from))
+      if (!isNaN(fromDate.getTime())) where.date.gte = fromDate
+    }
+    if (to) {
+      const toDate = new Date(String(to))
+      if (!isNaN(toDate.getTime())) where.date.lte = toDate
+    }
   }
   if (search) {
     where.OR = [
@@ -185,10 +192,12 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
       const d2 = (item.discount2Pct || 0) / 100
       const d3 = (item.discount3Pct || 0) / 100
       const netRate = item.rate * (1 - d1) * (1 - d2) * (1 - d3)
-      const taxable = netRate * item.qty
-      const disc = gross - taxable  // total discount in amount
+      const amountAfterDisc = netRate * item.qty
+      const disc = gross - amountAfterDisc  // total discount in amount
 
-      const gst = calculateGST(taxable, item.gstRate, item.taxType as any)
+      // Inclusive: taxable = amountAfterDisc / (1 + gstRate/100)
+      const gst = calculateGST(amountAfterDisc, item.gstRate, item.taxType as any, 0, data.isInclusive)
+      const taxable = gst.taxableAmount ?? amountAfterDisc
 
       totalQty += item.qty
       subtotal += gross
@@ -232,7 +241,11 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
       })
     }
 
-    const rawTotal = taxableTotal + cgstTotal + sgstTotal + igstTotal + cessTotal
+    // Inclusive: grandTotal = sum of gst.total (lineTotal) per item
+    // Exclusive: grandTotal = taxable + all taxes
+    const rawTotal = data.isInclusive
+      ? processedItems.reduce((s, item) => s + Number(item.lineTotal), 0)
+      : (taxableTotal + cgstTotal + sgstTotal + igstTotal + cessTotal)
     const { rounded: grandTotal, roundOff: roundOffAmt } = roundOff(rawTotal)
 
     // ── Create voucher ───────────────────────────────────────────────────────
@@ -251,6 +264,7 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
         isReverseCharge: data.isReverseCharge,
         isExport: data.isExport,
         saleType: data.saleType || null,
+        ...(data.isInclusive !== undefined ? { isInclusive: data.isInclusive } : {}),
         lut: data.lut || null,
         lutDate: data.lutDate ? new Date(data.lutDate) : null,
         refVoucherType: data.refVoucherType || null,
