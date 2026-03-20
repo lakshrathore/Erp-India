@@ -2,6 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiResponse, PaginatedResponse } from '../lib/api'
 import { useAuthStore } from '../stores/auth.store'
 
+// ─── Helper: get current companyId for enabled check ─────────────────────────
+function useCompanyId() {
+  return useAuthStore(s => s.activeCompany?.companyId)
+}
+
 // ═══════════════════════════════════════════════════════════════
 // AUTH
 // ═══════════════════════════════════════════════════════════════
@@ -97,7 +102,8 @@ export function useCompanyUsers(companyId: string) {
 // PARTIES
 // ═══════════════════════════════════════════════════════════════
 export function useParties(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['parties', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/masters/parties', { params }); return data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['parties', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/masters/parties', { params }); return data }, enabled: !!cid })
 }
 
 export function useParty(id: string) {
@@ -124,7 +130,8 @@ export function useUpdateParty(id: string) {
 // ITEMS
 // ═══════════════════════════════════════════════════════════════
 export function useItems(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['items', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/masters/items', { params }); return data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['items', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/masters/items', { params }); return data }, enabled: !!cid })
 }
 
 export function useItem(id: string) {
@@ -151,7 +158,8 @@ export function useUpdateItem(id: string) {
 // ITEM CATEGORIES
 // ═══════════════════════════════════════════════════════════════
 export function useItemCategories() {
-  return useQuery({ queryKey: ['item-categories'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/item-categories'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['item-categories'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/item-categories'); return data.data }, enabled: !!cid })
 }
 
 export function useCreateItemCategory() {
@@ -174,11 +182,13 @@ export function useUpdateItemCategory(id: string) {
 // LEDGERS
 // ═══════════════════════════════════════════════════════════════
 export function useLedgerGroups() {
-  return useQuery({ queryKey: ['ledger-groups'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/ledger-groups'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['ledger-groups'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/ledger-groups'); return data.data }, enabled: !!cid })
 }
 
 export function useLedgers(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['ledgers', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/ledgers', { params }); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['ledgers', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/ledgers', { params }); return data.data }, enabled: !!cid })
 }
 
 export function useCreateLedger() {
@@ -201,11 +211,13 @@ export function useUpdateLedger(id: string) {
 // TAX / GODOWNS / NUMBER SERIES
 // ═══════════════════════════════════════════════════════════════
 export function useTaxMasters() {
-  return useQuery({ queryKey: ['tax-masters'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/tax-masters'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['tax-masters'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/tax-masters'); return data.data }, enabled: !!cid })
 }
 
 export function useGodowns() {
-  return useQuery({ queryKey: ['godowns'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/godowns'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['godowns'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/godowns'); return data.data }, enabled: !!cid })
 }
 
 export function useCreateGodown() {
@@ -217,7 +229,8 @@ export function useCreateGodown() {
 }
 
 export function useNumberSeries() {
-  return useQuery({ queryKey: ['number-series'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/number-series'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['number-series'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/masters/number-series'); return data.data }, enabled: !!cid })
 }
 
 export function useUpdateNumberSeries(id: string) {
@@ -232,7 +245,8 @@ export function useUpdateNumberSeries(id: string) {
 // VOUCHERS
 // ═══════════════════════════════════════════════════════════════
 export function useVouchers(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['vouchers', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/billing/vouchers', { params }); return data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['vouchers', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/billing/vouchers', { params }); return data }, enabled: !!cid })
 }
 
 export function useVoucher(id: string) {
@@ -272,14 +286,14 @@ export function useCancelVoucher(id: string) {
 }
 
 export function useOutstanding(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['outstanding', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>('/billing/outstanding', { params }); return data.data } })
+  return useQuery({ queryKey: ['outstanding', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>('/billing/outstanding', { params }); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 // ═══════════════════════════════════════════════════════════════
 // INVENTORY
 // ═══════════════════════════════════════════════════════════════
 export function useStockSummary(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['stock-summary', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/inventory/stock', { params }); return data.data } })
+  return useQuery({ queryKey: ['stock-summary', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/inventory/stock', { params }); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 export function useItemLedger(itemId: string, from: string, to: string) {
@@ -287,14 +301,15 @@ export function useItemLedger(itemId: string, from: string, to: string) {
 }
 
 export function useInventoryProfit(from: string, to: string) {
-  return useQuery({ queryKey: ['inventory-profit', from, to], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/inventory/profit', { params: { from, to } }); return data.data } })
+  return useQuery({ queryKey: ['inventory-profit', from, to], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/inventory/profit', { params: { from, to } }); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 // ═══════════════════════════════════════════════════════════════
 // PAYROLL
 // ═══════════════════════════════════════════════════════════════
 export function useEmployees(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['employees', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/payroll/employees', { params }); return data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['employees', params], queryFn: async () => { const { data } = await api.get<PaginatedResponse<any>>('/payroll/employees', { params }); return data }, enabled: !!cid })
 }
 
 export function useEmployee(id: string) {
@@ -318,15 +333,17 @@ export function useUpdateEmployee(id: string) {
 }
 
 export function useDepartments() {
-  return useQuery({ queryKey: ['departments'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/departments'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['departments'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/departments'); return data.data }, enabled: !!cid })
 }
 
 export function useDesignations() {
-  return useQuery({ queryKey: ['designations'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/designations'); return data.data } })
+  return useQuery({ queryKey: ['designations'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/designations'); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 export function useSalaryStructures() {
-  return useQuery({ queryKey: ['salary-structures'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/salary-structures'); return data.data } })
+  const cid = useCompanyId()
+  return useQuery({ queryKey: ['salary-structures'], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/salary-structures'); return data.data }, enabled: !!cid })
 }
 
 export function useCreateSalaryStructure() {
@@ -338,7 +355,7 @@ export function useCreateSalaryStructure() {
 }
 
 export function useAttendance(month: number, year: number) {
-  return useQuery({ queryKey: ['attendance', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/attendance', { params: { month, year } }); return data.data } })
+  return useQuery({ queryKey: ['attendance', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/attendance', { params: { month, year } }); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 export function useBulkAttendance() {
@@ -350,7 +367,7 @@ export function useBulkAttendance() {
 }
 
 export function useLeaveApplications(params?: Record<string, any>) {
-  return useQuery({ queryKey: ['leave-applications', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/leave-applications', { params }); return data.data } })
+  return useQuery({ queryKey: ['leave-applications', params], queryFn: async () => { const { data } = await api.get<ApiResponse<any[]>>('/payroll/leave-applications', { params }); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 export function useApplyLeave() {
@@ -380,7 +397,7 @@ export function useProcessPayroll() {
 }
 
 export function usePaysheet(month: number, year: number) {
-  return useQuery({ queryKey: ['paysheet', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>(`/payroll/paysheet/${month}/${year}`); return data.data } })
+  return useQuery({ queryKey: ['paysheet', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>(`/payroll/paysheet/${month}/${year}`); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }
 
 export function usePayslip(empId: string, month: number, year: number) {
@@ -388,5 +405,5 @@ export function usePayslip(empId: string, month: number, year: number) {
 }
 
 export function usePFECR(month: number, year: number) {
-  return useQuery({ queryKey: ['pf-ecr', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>(`/payroll/pf-ecr/${month}/${year}`); return data.data } })
+  return useQuery({ queryKey: ['pf-ecr', month, year], queryFn: async () => { const { data } = await api.get<ApiResponse<any>>(`/payroll/pf-ecr/${month}/${year}`); return data.data }, enabled: !!useAuthStore.getState().activeCompany?.companyId })
 }

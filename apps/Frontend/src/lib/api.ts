@@ -1,4 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import { useAuthStore } from '../stores/auth.store'
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
@@ -8,74 +9,34 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// ─── Get auth from Zustand store (live in-memory, not localStorage) ──────────
-// We import lazily to avoid circular dependency
+// ─── Get auth — tries Zustand store first, falls back to localStorage ─────────
+// Zustand persist middleware is async on first load, so we fallback to localStorage
+// to ensure company header is always sent correctly.
 
 function getAuth() {
+  // First try live Zustand state (in-memory, most up-to-date)
+  const state = useAuthStore.getState()
+  const token = state.accessToken
+  const companyId = state.activeCompany?.companyId
+
+  // If store is hydrated and has data, use it
+  if (token && companyId) {
+    return { accessToken: token, refreshToken: state.refreshToken, companyId }
+  }
+
+  // Fallback: read directly from localStorage (handles page refresh before hydration)
   try {
-    // Dynamic import of store to get live state (not persisted localStorage copy)
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { useAuthStore } = require('../stores/auth.store')
-    const state = useAuthStore.getState()
+    const raw = localStorage.getItem('erp-auth')
+    if (!raw) return { accessToken: token, refreshToken: state.refreshToken, companyId: companyId || null }
+    const parsed = JSON.parse(raw)
+    const s = parsed?.state
     return {
-      accessToken: state?.accessToken || null,
-      refreshToken: state?.refreshToken || null,
-      companyId: state?.activeCompany?.companyId || null,
+      accessToken: s?.accessToken || token || null,
+      refreshToken: s?.refreshToken || state.refreshToken || null,
+      companyId: s?.activeCompany?.companyId || companyId || null,
     }
   } catch {
-    // Fallback to localStorage if store not ready
-    try {
-      const raw = localStorage.getItem('erp-auth')
-      if (!raw) return null
-      const parsed = JSON.parse(raw)
-      const state = parsed?.state
-      return {
-        accessToken: state?.accessToken || null,
-        refreshToken: state?.refreshToken || null,
-        companyId: state?.activeCompany?.companyId || null,
-      }
-    } catch {
-      return null
-    }
-  }
-}
-
-function updateTokens(accessToken: string, refreshToken: string) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { useAuthStore } = require('../stores/auth.store')
-    useAuthStore.getState().updateTokens(accessToken, refreshToken)
-  } catch {
-    // Fallback: update localStorage directly
-    try {
-      const raw = localStorage.getItem('erp-auth')
-      if (!raw) return
-      const parsed = JSON.parse(raw)
-      parsed.state.accessToken = accessToken
-      parsed.state.refreshToken = refreshToken
-      localStorage.setItem('erp-auth', JSON.stringify(parsed))
-    } catch { /* ignore */ }
-  }
-}
-
-function clearAuth() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { useAuthStore } = require('../stores/auth.store')
-    useAuthStore.getState().logout()
-  } catch {
-    try {
-      const raw = localStorage.getItem('erp-auth')
-      if (!raw) return
-      const parsed = JSON.parse(raw)
-      parsed.state.accessToken = null
-      parsed.state.refreshToken = null
-      parsed.state.user = null
-      parsed.state.companies = []
-      parsed.state.activeCompany = null
-      parsed.state.activeFY = null
-      localStorage.setItem('erp-auth', JSON.stringify(parsed))
-    } catch { /* ignore */ }
+    return { accessToken: token, refreshToken: state.refreshToken, companyId: companyId || null }
   }
 }
 
@@ -83,10 +44,10 @@ function clearAuth() {
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const auth = getAuth()
-  if (auth?.accessToken) {
+  if (auth.accessToken) {
     config.headers.Authorization = `Bearer ${auth.accessToken}`
   }
-  if (auth?.companyId) {
+  if (auth.companyId) {
     config.headers['x-company-id'] = auth.companyId
   }
   return config
@@ -121,8 +82,8 @@ api.interceptors.response.use(
       isRefreshing = true
 
       const auth = getAuth()
-      if (!auth?.refreshToken) {
-        clearAuth()
+      if (!auth.refreshToken) {
+        useAuthStore.getState().logout()
         window.location.href = '/login'
         return Promise.reject(error)
       }
@@ -132,13 +93,13 @@ api.interceptors.response.use(
           refreshToken: auth.refreshToken,
         })
         const { accessToken, refreshToken } = data.data
-        updateTokens(accessToken, refreshToken)
+        useAuthStore.getState().updateTokens(accessToken, refreshToken)
         processQueue(null, accessToken)
         original.headers.Authorization = `Bearer ${accessToken}`
         return api(original)
       } catch (refreshError) {
         processQueue(refreshError, null)
-        clearAuth()
+        useAuthStore.getState().logout()
         window.location.href = '/login'
         return Promise.reject(refreshError)
       } finally {
@@ -173,25 +134,14 @@ export function extractError(error: unknown): string {
 // ─── Legacy compat ────────────────────────────────────────────────────────────
 
 export interface Session {
-  accessToken: string
-  refreshToken: string
-  companyId?: string
-  userId: string
-  userName: string
-  userEmail: string
-  isSuperAdmin: boolean
+  accessToken: string; refreshToken: string; companyId?: string
+  userId: string; userName: string; userEmail: string; isSuperAdmin: boolean
 }
-
 export function getSession(): Session | null {
   const auth = getAuth()
-  if (!auth?.accessToken) return null
-  return {
-    accessToken: auth.accessToken,
-    refreshToken: auth.refreshToken || '',
-    companyId: auth.companyId || undefined,
-    userId: '', userName: '', userEmail: '', isSuperAdmin: false,
-  }
+  if (!auth.accessToken) return null
+  return { accessToken: auth.accessToken, refreshToken: auth.refreshToken || '', companyId: auth.companyId || undefined, userId: '', userName: '', userEmail: '', isSuperAdmin: false }
 }
 export function setSession(_s: Session) { /* no-op */ }
-export function clearSession() { clearAuth() }
+export function clearSession() { useAuthStore.getState().logout() }
 export function setActiveCompany(_id: string) { /* no-op */ }

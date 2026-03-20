@@ -7,6 +7,7 @@ import { Save, ArrowLeft, AlertCircle, ChevronDown, ChevronUp } from 'lucide-rea
 import { useItem, useCreateItem, useUpdateItem, useItemCategories } from '../../hooks/api.hooks'
 import { Button, Input, Select, Textarea, PageHeader } from '../../components/ui'
 import { extractError } from '../../lib/api'
+import ItemVariantsManager from '../../components/forms/ItemVariantsManager'
 
 const itemSchema = z.object({
   name: z.string().min(2, 'Name required'),
@@ -53,6 +54,7 @@ export default function ItemFormPage() {
   const isEdit = !!id && id !== 'new'
   const [saveError, setSaveError] = useState('')
   const [showPTR, setShowPTR] = useState(false)
+  const [activeTab, setActiveTab] = useState<'details'|'variants'>('details')
 
   const { data: item, isLoading } = useItem(isEdit ? id : '')
   const { data: categories = [] } = useItemCategories()
@@ -101,6 +103,18 @@ export default function ItemFormPage() {
 
   const isSaving = createItem.isPending || updateItem.isPending
   const w = form.watch()
+  
+  // Get attributes from currently selected category
+  const selectedCategoryId = form.watch('categoryId')
+  const selectedCategory = (categories as any[]).find((c: any) => c.id === selectedCategoryId)
+  // category.attributes is stored as JSON in DB - parse if string
+  const categoryAttributes = (() => {
+    const attrs = selectedCategory?.attributes || item?.category?.attributes || []
+    if (typeof attrs === 'string') {
+      try { return JSON.parse(attrs) } catch { return [] }
+    }
+    return attrs
+  })()
 
   const margin = w.saleRate > 0 && w.purchaseRate > 0
     ? (((w.saleRate - w.purchaseRate) / w.saleRate) * 100).toFixed(1) : null
@@ -124,13 +138,25 @@ export default function ItemFormPage() {
         }
       />
 
+      {/* Tabs */}
+      {isEdit && (
+        <div className="flex gap-1 border-b border-border mb-4">
+          {(['details', 'variants'] as const).map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors capitalize ${activeTab === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>
+              {tab === 'variants' ? `Variants / Color / Size` : 'Item Details'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {saveError && (
         <div className="mb-4 flex items-center gap-2 rounded-md bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
           <AlertCircle size={15} /> {saveError}
         </div>
       )}
 
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      {(!isEdit || activeTab === 'details') && <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
         {/* Basic */}
         <div className="form-section">
@@ -243,7 +269,24 @@ export default function ItemFormPage() {
             </div>
           )}
         </div>
-      </form>
+      </form>}
+
+      {/* Variants Tab */}
+      {isEdit && activeTab === 'variants' && item && (
+        <div className="form-section">
+          <h3 className="form-section-title">Item Variants</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            Variants allow you to manage different combinations like Color+Size, Batch+Expiry etc. 
+            Attributes are defined in <strong>Masters → Item Categories</strong>.
+          </p>
+          <ItemVariantsManager
+            itemId={item.id}
+            itemName={item.name}
+            categoryAttributes={categoryAttributes as any[]}
+            basePrice={{ purchaseRate: Number(item.purchaseRate), saleRate: Number(item.saleRate) }}
+          />
+        </div>
+      )}
     </div>
   )
 }

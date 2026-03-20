@@ -5,7 +5,7 @@ import {
   FileText, Users, Settings, ChevronDown, ChevronRight,
   Building2, BarChart3, CreditCard, Receipt, Wallet,
   ClipboardList, UserCheck, Menu, LogOut, Bell,
-  Building, ChevronLeft, TrendingUp, User, RefreshCcw, Printer,
+  Building, ChevronLeft, TrendingUp, TrendingDown, User, RefreshCcw, Printer, Plus,
 } from 'lucide-react'
 import { cn } from '../ui/utils'
 import { useAuthStore } from '../../stores/auth.store'
@@ -104,6 +104,14 @@ const NAV: NavItem[] = [
       { label: 'Item Categories', icon: Package, href: '/masters/item-categories' },
       { label: 'Ledgers', icon: BookOpen, href: '/masters/ledgers' },
       { label: 'Godowns', icon: Building, href: '/masters/godowns' },
+    ],
+  },
+  {
+    label: 'Fixed Assets', icon: Building2,
+    children: [
+      { label: 'Asset Register', icon: Package, href: '/assets' },
+      { label: 'Add Asset', icon: Plus, href: '/assets/new' },
+      { label: 'Run Depreciation', icon: TrendingDown, href: '/assets/depreciation' },
     ],
   },
   {

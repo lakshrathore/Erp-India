@@ -232,6 +232,7 @@ model Company {
   numberSeries      NumberSeries[]
   companySettings   CompanySetting[]
   auditLogs         AuditLog[]
+  fixedAssets       FixedAsset[]
 
   @@map("companies")
 }
@@ -1249,6 +1250,93 @@ model EmployeeLoan {
 // ─────────────────────────────────────────────────────────────
 // AUDIT LOG
 // ─────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────
+// FIXED ASSETS
+// ─────────────────────────────────────────────────────────────
+
+enum DepreciationMethod {
+  SLM       // Straight Line Method
+  WDV       // Written Down Value
+  UNITS     // Units of Production
+}
+
+enum AssetStatus {
+  ACTIVE
+  DISPOSED
+  FULLY_DEPRECIATED
+  UNDER_REPAIR
+  WRITTEN_OFF
+}
+
+model FixedAsset {
+  id                String            @id @default(uuid())
+  companyId         String
+  code              String?
+  name              String
+  description       String?
+  category          String            // Building, Machinery, Vehicle, Computer, Furniture etc.
+  location          String?
+  purchaseDate      DateTime          @db.Date
+  purchaseValue     Decimal           @db.Decimal(15, 2)
+  salvageValue      Decimal           @default(0) @db.Decimal(15, 2)  // Residual value
+  usefulLifeYears   Int               @default(5)
+  depreciationMethod DepreciationMethod @default(WDV)
+  depreciationRate  Decimal           @db.Decimal(5, 2)               // % per year
+  
+  // Current values
+  currentValue      Decimal           @db.Decimal(15, 2)              // Book value
+  totalDepreciation Decimal           @default(0) @db.Decimal(15, 2)
+  
+  // Vendor / Purchase
+  vendorName        String?
+  vendorInvoiceNo   String?
+  warrantyExpiry    DateTime?         @db.Date
+  
+  // Tax
+  hsnCode           String?
+  gstRate           Decimal           @default(18) @db.Decimal(5, 2)
+  
+  // Ledger mapping
+  assetLedgerId     String?           // Asset account ledger
+  depExpLedgerId    String?           // Depreciation expense ledger
+  accDepLedgerId    String?           // Accumulated depreciation ledger
+  
+  // Status
+  status            AssetStatus       @default(ACTIVE)
+  disposalDate      DateTime?         @db.Date
+  disposalValue     Decimal?          @db.Decimal(15, 2)
+  disposalReason    String?
+  
+  isActive          Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  depreciations AssetDepreciation[]
+  
+  @@map("fixed_assets")
+}
+
+model AssetDepreciation {
+  id              String   @id @default(uuid())
+  assetId         String
+  companyId       String
+  financialYear   String
+  month           Int
+  year            Int
+  openingValue    Decimal  @db.Decimal(15, 2)
+  depreciationAmt Decimal  @db.Decimal(15, 2)
+  closingValue    Decimal  @db.Decimal(15, 2)
+  voucherId       String?  // Journal voucher created
+  createdAt       DateTime @default(now())
+
+  asset   FixedAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  
+  @@unique([assetId, financialYear, month])
+  @@map("asset_depreciations")
+}
 
 model AuditLog {
   id          String   @id @default(uuid())

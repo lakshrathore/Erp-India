@@ -58,6 +58,9 @@ const TallyPage          = lazy(() => import('./modules/settings/TallyPage'))
 const CompanySettingsPage = lazy(() => import('./modules/settings/CompanySettingsPage').then(m => ({ default: m.CompanySettingsPage })))
 const NumberSeriesPage    = lazy(() => import('./modules/settings/NumberSeriesPage'))
 const POSPage             = lazy(() => import('./modules/billing/POSPage'))
+const FixedAssetListPage  = lazy(() => import('./modules/assets/FixedAssetsPage').then(m => ({ default: m.FixedAssetListPage })))
+const FixedAssetFormPage  = lazy(() => import('./modules/assets/FixedAssetsPage').then(m => ({ default: m.FixedAssetFormPage })))
+const DepreciationPage    = lazy(() => import('./modules/assets/FixedAssetsPage').then(m => ({ default: m.DepreciationPage })))
 const TransactionSettingsPage = lazy(() => import('./modules/settings/TransactionSettingsPage'))
 const LedgerMappingPage   = lazy(() => import('./modules/settings/LedgerMappingPage'))
 const PrintSetupPage      = lazy(() => import('./modules/settings/PrintSetupPage'))
@@ -94,6 +97,10 @@ export default function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="pos"       element={<POSPage />} />
+              <Route path="assets"              element={<FixedAssetListPage />} />
+              <Route path="assets/new"          element={<FixedAssetFormPage />} />
+              <Route path="assets/depreciation" element={<DepreciationPage />} />
+              <Route path="assets/:id"          element={<FixedAssetFormPage />} />
               <Route path="profile"   element={<UserProfile />} />
 
               {/* Masters */}
