@@ -156,6 +156,100 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   }
 )
 Select.displayName = 'Select'
+// ─── SearchSelect (Select with search/filter) ─────────────────────────────────
+
+export interface SearchSelectProps {
+  label?: string | React.ReactNode
+  options: SelectOption[]
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  required?: boolean
+  className?: string
+  disabled?: boolean
+}
+
+export function SearchSelect({ label, options, value, onChange, placeholder = 'Select...', required, className, disabled }: SearchSelectProps) {
+  const [open, setOpen] = React.useState(false)
+  const [q, setQ] = React.useState('')
+  const ref = React.useRef<HTMLDivElement>(null)
+  const inputId = typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined
+
+  const selected = options.find(o => o.value === value)
+  const filtered = options.filter(o =>
+    !q || o.label.toLowerCase().includes(q.toLowerCase()) || o.value.toLowerCase().includes(q.toLowerCase())
+  )
+
+  React.useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ('') } }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  return (
+    <div className={cn('space-y-1.5', className)} ref={ref}>
+      {label && (
+        <label className="text-xs font-medium text-foreground block">
+          {label}
+          {required && <span className="text-destructive ml-0.5">*</span>}
+        </label>
+      )}
+      <div className="relative">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => { setOpen(o => !o); setQ('') }}
+          className={cn(
+            'flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm',
+            'focus:outline-none focus:ring-2 focus:ring-ring',
+            'disabled:cursor-not-allowed disabled:opacity-50',
+            !selected && 'text-muted-foreground'
+          )}
+        >
+          <span className="truncate">{selected?.label || placeholder}</span>
+          <svg className="h-4 w-4 opacity-50 shrink-0 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {open && (
+          <div className="absolute z-50 mt-1 w-full bg-card border border-border rounded-lg shadow-xl">
+            <div className="p-2 border-b border-border">
+              <input
+                autoFocus
+                value={q}
+                onChange={e => setQ(e.target.value)}
+                placeholder="Search..."
+                className="h-7 w-full rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-3">No results</p>
+              ) : filtered.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={opt.disabled}
+                  onClick={() => { onChange(opt.value); setOpen(false); setQ('') }}
+                  className={cn(
+                    'w-full text-left px-3 py-2 text-sm hover:bg-muted/60 transition-colors',
+                    opt.value === value && 'bg-primary/10 text-primary font-medium',
+                    opt.disabled && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
 
 // ─── Textarea ─────────────────────────────────────────────────────────────────
 

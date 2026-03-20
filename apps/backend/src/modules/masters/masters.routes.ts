@@ -37,6 +37,7 @@ const partySchema = z.object({
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
   ifscCode: z.string().optional(),
+  upiId: z.string().optional(),
 })
 
 mastersRouter.get('/parties', async (req: Request, res: Response) => {
@@ -160,10 +161,22 @@ mastersRouter.post('/item-categories', async (req: Request, res: Response) => {
 })
 
 mastersRouter.put('/item-categories/:id', async (req: Request, res: Response) => {
+  const existing = await prisma.itemCategory.findFirst({ where: { id: req.params.id, companyId: req.companyId } })
+  if (!existing) throw new NotFoundError('Category')
   const body = itemCategorySchema.partial().safeParse(req.body)
   if (!body.success) throw new BadRequestError(body.error.errors[0].message)
+  // If name changed, check for duplicate
+  if (body.data.name && body.data.name !== existing.name) {
+    const dup = await prisma.itemCategory.findFirst({ where: { companyId: req.companyId, name: body.data.name, id: { not: req.params.id } } })
+    if (dup) throw new BadRequestError(`Category "${body.data.name}" already exists`)
+  }
   const cat = await prisma.itemCategory.update({ where: { id: req.params.id }, data: body.data as any })
   sendSuccess(res, cat, 'Category updated')
+})
+
+mastersRouter.get('/item-categories/:id/usage', async (req: Request, res: Response) => {
+  const itemCount = await prisma.item.count({ where: { categoryId: req.params.id, companyId: req.companyId } })
+  sendSuccess(res, { itemCount, canDelete: itemCount === 0, message: itemCount > 0 ? `${itemCount} items use this category` : null })
 })
 
 // ═══════════════════════════════════════════════════════════════
@@ -299,6 +312,7 @@ const ledgerSchema = z.object({
   bankName: z.string().optional(),
   accountNumber: z.string().optional(),
   ifscCode: z.string().optional(),
+  upiId: z.string().optional(),
   bankBranch: z.string().optional(),
 })
 
@@ -626,4 +640,80 @@ mastersRouter.get('/ledgers/:id/usage', async (req: Request, res: Response) => {
     partyCount,
     canDelete: voucherCount === 0 && partyCount === 0,
   })
+})
+
+// ─── UNIT MASTERS ─────────────────────────────────────────────────────────────
+
+const DEFAULT_UNITS = [
+  { name: 'PCS', symbol: 'Pcs', isSystem: true },
+  { name: 'KG', symbol: 'Kg', isSystem: true },
+  { name: 'GMS', symbol: 'g', isSystem: true },
+  { name: 'LTR', symbol: 'L', isSystem: true },
+  { name: 'ML', symbol: 'ml', isSystem: true },
+  { name: 'MTR', symbol: 'm', isSystem: true },
+  { name: 'CM', symbol: 'cm', isSystem: true },
+  { name: 'BOX', symbol: 'Box', isSystem: true },
+  { name: 'PKT', symbol: 'Pkt', isSystem: true },
+  { name: 'DOZ', symbol: 'Doz', isSystem: true },
+  { name: 'BAG', symbol: 'Bag', isSystem: true },
+  { name: 'SET', symbol: 'Set', isSystem: true },
+  { name: 'PAIR', symbol: 'Pr', isSystem: true },
+  { name: 'NOS', symbol: 'Nos', isSystem: true },
+  { name: 'ROLL', symbol: 'Roll', isSystem: true },
+  { name: 'SQM', symbol: 'Sq.m', isSystem: true },
+  { name: 'SQF', symbol: 'Sq.ft', isSystem: true },
+  { name: 'TON', symbol: 'Ton', isSystem: true },
+  { name: 'QTL', symbol: 'Qtl', isSystem: true },
+]
+
+mastersRouter.get('/units', async (req: Request, res: Response) => {
+  // Seed defaults if none exist
+  const count = await prisma.unitMaster.count({ where: { companyId: req.companyId } })
+  if (count === 0) {
+    await prisma.unitMaster.createMany({
+      data: DEFAULT_UNITS.map(u => ({ ...u, companyId: req.companyId })),
+      skipDuplicates: true,
+    })
+  }
+  const units = await prisma.unitMaster.findMany({
+    where: { companyId: req.companyId, isActive: true },
+    orderBy: [{ isSystem: 'desc' }, { name: 'asc' }],
+  })
+  sendSuccess(res, units)
+})
+
+mastersRouter.post('/units', async (req: Request, res: Response) => {
+  const { name, symbol } = z.object({
+    name: z.string().min(1).max(20).toUpperCase(),
+    symbol: z.string().min(1).max(10),
+  }).parse(req.body)
+
+  const unit = await prisma.unitMaster.create({
+    data: { companyId: req.companyId, name: name.toUpperCase(), symbol, isSystem: false },
+  })
+  sendSuccess(res, unit, 'Unit created', 201)
+})
+
+mastersRouter.delete('/units/:id', async (req: Request, res: Response) => {
+  const unit = await prisma.unitMaster.findFirst({ where: { id: req.params.id, companyId: req.companyId } })
+  if (!unit) throw new NotFoundError('Unit')
+  if (unit.isSystem) throw new BadRequestError('System units cannot be deleted')
+  await prisma.unitMaster.delete({ where: { id: req.params.id } })
+  sendSuccess(res, null, 'Unit deleted')
+})
+
+// ─── BANK ACCOUNTS (Bank Ledgers with account details) ───────────────────────
+
+mastersRouter.get('/bank-accounts', async (req: Request, res: Response) => {
+  // Get all ledgers in Bank group
+  const banks = await prisma.ledger.findMany({
+    where: {
+      companyId: req.companyId,
+      isActive: true,
+      group: { name: { in: ['Bank Accounts', 'Bank Account', 'Cash-in-Hand', 'Cash'] } },
+    },
+    include: { group: { select: { name: true } } },
+    orderBy: { name: 'asc' },
+  })
+  sendSuccess(res, banks)
 })

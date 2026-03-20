@@ -1,17 +1,22 @@
 import { useState } from 'react'
-import { Plus, Trash2, GripVertical, Tag, Edit, Check, X } from 'lucide-react'
-import { useItemCategories, useCreateItemCategory } from '../../hooks/api.hooks'
-import { Button, Input, Select, Badge, PageHeader, Card, CardContent, EmptyState, Spinner } from '../../components/ui'
-import { extractError } from '../../lib/api'
-import { api } from '../../lib/api'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  Plus, Trash2, GripVertical, Tag, Edit, Check, X,
+  ChevronDown, ChevronRight, Info, Package
+} from 'lucide-react'
+import { api, extractError } from '../../lib/api'
+import { Button, Input, Badge, PageHeader, Spinner } from '../../components/ui'
 import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
-import { useQueryClient } from '@tanstack/react-query'
+import { useAuthStore } from '../../stores/auth.store'
+import { cn } from '../../components/ui/utils'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Attribute {
-  name: string
-  label: string
+  name: string        // field key e.g. "batch_no"
+  label: string       // display label e.g. "Batch No"
   type: 'text' | 'number' | 'date' | 'select' | 'boolean'
-  options?: string[]
+  options?: string[]  // for select type
   required: boolean
   showInReport: boolean
 }
@@ -20,20 +25,19 @@ const ATTR_TYPES = [
   { value: 'text', label: 'Text' },
   { value: 'number', label: 'Number' },
   { value: 'date', label: 'Date' },
-  { value: 'select', label: 'Dropdown (Select)' },
-  { value: 'boolean', label: 'Yes/No (Boolean)' },
+  { value: 'select', label: 'Dropdown' },
+  { value: 'boolean', label: 'Yes/No' },
 ]
 
-const PRESET_CATEGORIES = [
-  {
-    name: 'Garments / Textiles',
-    trackBatch: false,
-    attributes: [
-      { name: 'color', label: 'Color', type: 'text', required: false, showInReport: true },
-      { name: 'size', label: 'Size', type: 'select', options: ['XS','S','M','L','XL','XXL','XXXL'], required: false, showInReport: true },
-      { name: 'fabric', label: 'Fabric', type: 'text', required: false, showInReport: false },
-    ],
-  },
+// ─── Preset Categories ────────────────────────────────────────────────────────
+// These are TEMPLATES — user can apply and then customize before saving
+
+const PRESET_CATEGORIES: Array<{
+  name: string
+  trackBatch: boolean
+  trackExpiry?: boolean
+  attributes: Attribute[]
+}> = [
   {
     name: 'Pharmaceuticals',
     trackBatch: true,
@@ -45,12 +49,22 @@ const PRESET_CATEGORIES = [
     ],
   },
   {
+    name: 'Garments / Textiles',
+    trackBatch: false,
+    attributes: [
+      { name: 'color', label: 'Color', type: 'text', required: false, showInReport: true },
+      { name: 'size', label: 'Size', type: 'select', options: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'], required: false, showInReport: true },
+      { name: 'fabric', label: 'Fabric', type: 'text', required: false, showInReport: false },
+    ],
+  },
+  {
     name: 'Electronics',
     trackBatch: false,
     attributes: [
-      { name: 'serial_no', label: 'Serial No', type: 'text', required: false, showInReport: true },
-      { name: 'warranty_months', label: 'Warranty (months)', type: 'number', required: false, showInReport: false },
-      { name: 'color', label: 'Color', type: 'text', required: false, showInReport: false },
+      { name: 'brand', label: 'Brand', type: 'text', required: false, showInReport: true },
+      { name: 'model_no', label: 'Model No', type: 'text', required: false, showInReport: true },
+      { name: 'serial_no', label: 'Serial No', type: 'text', required: false, showInReport: false },
+      { name: 'warranty', label: 'Warranty (months)', type: 'number', required: false, showInReport: false },
     ],
   },
   {
@@ -61,280 +75,487 @@ const PRESET_CATEGORIES = [
       { name: 'batch_no', label: 'Batch No', type: 'text', required: true, showInReport: true },
       { name: 'mfg_date', label: 'Mfg Date', type: 'date', required: true, showInReport: true },
       { name: 'exp_date', label: 'Exp Date', type: 'date', required: true, showInReport: true },
-      { name: 'weight_gm', label: 'Weight (gm)', type: 'number', required: false, showInReport: true },
     ],
+  },
+  {
+    name: 'Jewellery',
+    trackBatch: false,
+    attributes: [
+      { name: 'purity', label: 'Purity (e.g. 22K)', type: 'text', required: true, showInReport: true },
+      { name: 'weight_gm', label: 'Weight (gm)', type: 'number', required: true, showInReport: true },
+      { name: 'hallmark', label: 'Hallmark No', type: 'text', required: false, showInReport: false },
+    ],
+  },
+  {
+    name: 'No Attributes',
+    trackBatch: false,
+    attributes: [],
   },
 ]
 
-function AttributeRow({ attr, index, onChange, onDelete }: {
-  attr: Attribute; index: number
+// ─── Single Attribute Row ─────────────────────────────────────────────────────
+
+function AttrRow({ attr, index, onChange, onDelete }: {
+  attr: Attribute
+  index: number
   onChange: (i: number, a: Attribute) => void
   onDelete: (i: number) => void
 }) {
-  const [optionsInput, setOptionsInput] = useState(attr.options?.join(', ') || '')
+  const [optInput, setOptInput] = useState(attr.options?.join(', ') || '')
 
   return (
-    <div className="grid grid-cols-12 gap-2 items-start py-2 border-b border-border/50 last:border-0">
-      <div className="col-span-1 flex items-center justify-center pt-2 text-muted-foreground">
-        <GripVertical size={14} />
+    <div className="grid grid-cols-12 gap-2 items-start py-2 border-b border-border/30">
+      <div className="col-span-1 flex items-center pt-2">
+        <GripVertical size={14} className="text-muted-foreground cursor-grab" />
+        <span className="text-xs text-muted-foreground ml-1">{index + 1}</span>
       </div>
-      <div className="col-span-2">
-        <Input placeholder="field_name" value={attr.name}
-          onChange={e => onChange(index, { ...attr, name: e.target.value.toLowerCase().replace(/\s/g, '_') })}
-          className="text-xs font-mono" />
-      </div>
-      <div className="col-span-2">
-        <Input placeholder="Display Label" value={attr.label}
-          onChange={e => onChange(index, { ...attr, label: e.target.value })}
-          className="text-xs" />
-      </div>
-      <div className="col-span-2">
-        <Select options={ATTR_TYPES} value={attr.type}
-          onChange={e => onChange(index, { ...attr, type: e.target.value as any, options: [] })}
-          className="text-xs" />
-      </div>
+
+      {/* Field name (key) */}
       <div className="col-span-3">
+        <input
+          value={attr.name}
+          onChange={e => onChange(index, { ...attr, name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
+          placeholder="field_key"
+          className="h-7 w-full rounded border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
+      {/* Label */}
+      <div className="col-span-3">
+        <input
+          value={attr.label}
+          onChange={e => onChange(index, { ...attr, label: e.target.value })}
+          placeholder="Display Label"
+          className="h-7 w-full rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
+
+      {/* Type */}
+      <div className="col-span-2">
+        <select
+          value={attr.type}
+          onChange={e => onChange(index, { ...attr, type: e.target.value as any })}
+          className="h-7 w-full rounded border border-input bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {ATTR_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
+      {/* Options (for select) */}
+      <div className="col-span-2">
         {attr.type === 'select' ? (
-          <Input placeholder="Option1, Option2, Option3" value={optionsInput}
+          <input
+            value={optInput}
             onChange={e => {
-              setOptionsInput(e.target.value)
+              setOptInput(e.target.value)
               onChange(index, { ...attr, options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })
             }}
-            className="text-xs" />
+            placeholder="A, B, C"
+            title="Comma-separated options"
+            className="h-7 w-full rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+          />
         ) : (
-          <span className="text-xs text-muted-foreground pt-2 block">—</span>
+          <span className="text-xs text-muted-foreground block pt-1.5">—</span>
         )}
       </div>
-      <div className="col-span-1 flex items-center gap-1 pt-1.5">
-        <button type="button"
+
+      {/* Required + Delete */}
+      <div className="col-span-1 flex items-center gap-1.5 pt-0.5">
+        <button
+          type="button"
           onClick={() => onChange(index, { ...attr, required: !attr.required })}
-          className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${attr.required ? 'bg-destructive/10 text-destructive border-destructive/30' : 'border-border text-muted-foreground hover:border-primary'}`}
-          title="Required field">
+          title={attr.required ? 'Required' : 'Optional'}
+          className={cn(
+            'text-[10px] px-1 py-0.5 rounded border transition-colors',
+            attr.required
+              ? 'bg-destructive/10 text-destructive border-destructive/30'
+              : 'border-border text-muted-foreground hover:border-primary'
+          )}
+        >
           {attr.required ? 'Req' : 'Opt'}
         </button>
-      </div>
-      <div className="col-span-1 flex items-center pt-1.5">
         <button type="button" onClick={() => onDelete(index)}
           className="text-muted-foreground hover:text-destructive transition-colors">
-          <Trash2 size={14} />
+          <Trash2 size={12} />
         </button>
       </div>
     </div>
   )
 }
 
-export default function ItemCategoriesPage() {
+// ─── Category Form ────────────────────────────────────────────────────────────
+
+function CategoryForm({
+  editCat,
+  onSaved,
+  onCancel,
+}: {
+  editCat?: any
+  onSaved: () => void
+  onCancel: () => void
+}) {
+  const { activeCompany } = useAuthStore()
   const qc = useQueryClient()
-  const { data: categories = [], isLoading } = useItemCategories()
-  const createCategory = useCreateItemCategory()
+  const isEdit = !!editCat
 
-  const [showForm, setShowForm] = useState(false)
-  const [editCatId, setEditCatId] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [trackBatch, setTrackBatch] = useState(false)
-  const [trackExpiry, setTrackExpiry] = useState(false)
-  const [attributes, setAttributes] = useState<Attribute[]>([])
-  const [saveError, setSaveError] = useState('')
+  const [name, setName] = useState(editCat?.name || '')
+  const [trackBatch, setTrackBatch] = useState(editCat?.trackBatch || false)
+  const [trackExpiry, setTrackExpiry] = useState(editCat?.trackExpiry || false)
+  const [attributes, setAttributes] = useState<Attribute[]>(editCat?.attributes || [])
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  const addAttribute = () => {
-    setAttributes(prev => [...prev, {
-      name: `attr${prev.length + 1}`,
-      label: `Attribute ${prev.length + 1}`,
-      type: 'text',
-      required: false,
-      showInReport: true,
-    }])
+  const applyPreset = (p: typeof PRESET_CATEGORIES[0]) => {
+    // Only apply name if creating new
+    if (!isEdit) setName(p.name)
+    setTrackBatch(p.trackBatch)
+    setTrackExpiry(p.trackExpiry || false)
+    setAttributes([...(p.attributes as Attribute[])])
   }
 
-  const updateAttribute = (i: number, a: Attribute) => {
-    setAttributes(prev => prev.map((x, idx) => idx === i ? a : x))
-  }
+  const addAttr = () => setAttributes(prev => [...prev, {
+    name: `attr_${prev.length + 1}`,
+    label: `Attribute ${prev.length + 1}`,
+    type: 'text', required: false, showInReport: true,
+  }])
 
-  const deleteAttribute = (i: number) => {
-    setAttributes(prev => prev.filter((_, idx) => idx !== i))
-  }
+  const save = async () => {
+    setError('')
+    if (!name.trim()) { setError('Category name is required'); return }
 
-  const applyPreset = (preset: typeof PRESET_CATEGORIES[0]) => {
-    setName(preset.name)
-    setTrackBatch(preset.trackBatch)
-    setTrackExpiry(!!(preset as any).trackExpiry)
-    setAttributes(preset.attributes as Attribute[])
-  }
+    // Validate attributes
+    for (const a of attributes) {
+      if (!a.name.trim()) { setError('All attribute field names are required'); return }
+      if (!a.label.trim()) { setError('All attribute labels are required'); return }
+    }
 
-  const handleSave = async () => {
-    setSaveError('')
-    if (!name.trim()) { setSaveError('Category name is required'); return }
+    setSaving(true)
     try {
-      await createCategory.mutateAsync({ name, trackBatch, trackExpiry, attributes })
-      setShowForm(false)
-      setEditCatId(null)
-      setName('')
-      qc.invalidateQueries({ queryKey: ['item-categories'] }); setTrackBatch(false); setTrackExpiry(false); setAttributes([])
+      const payload = { name: name.trim(), trackBatch, trackExpiry, attributes }
+      if (isEdit) {
+        await api.put(`/masters/item-categories/${editCat.id}`, payload)
+      } else {
+        await api.post('/masters/item-categories', payload)
+      }
+      qc.invalidateQueries({ queryKey: ['item-categories'] })
+      onSaved()
     } catch (e) {
-      setSaveError(extractError(e))
+      const msg = extractError(e)
+      if (msg.includes('already exists')) {
+        setError(`Category "${name}" already exists. Use a different name.`)
+      } else {
+        setError(msg)
+      }
+    } finally {
+      setSaving(false)
     }
   }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 mb-4">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-bold text-base">{isEdit ? `Edit: ${editCat.name}` : 'New Category'}</h3>
+        <button onClick={onCancel} className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-muted">
+          <X size={16} />
+        </button>
+      </div>
+
+      {/* Presets — only shown when creating, as attribute TEMPLATES */}
+      {!isEdit && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-muted-foreground mb-2">
+            Quick presets — fills name + attributes as a starting point (you can edit after):
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PRESET_CATEGORIES.map(p => (
+              <button
+                key={p.name}
+                onClick={() => applyPreset(p)}
+                className="px-3 py-1.5 rounded-lg border border-border text-xs font-medium hover:border-primary hover:text-primary hover:bg-primary/5 transition-all"
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* When editing - show preset attribute templates */}
+      {isEdit && (
+        <div className="mb-4">
+          <p className="text-xs font-medium text-muted-foreground mb-2">
+            Apply attribute template (replaces current attributes):
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PRESET_CATEGORIES.filter(p => p.name !== 'No Attributes').map(p => (
+              <button
+                key={p.name}
+                onClick={() => {
+                  setTrackBatch(p.trackBatch)
+                  setTrackExpiry(p.trackExpiry || false)
+                  setAttributes([...(p.attributes as Attribute[])])
+                }}
+                className="px-2.5 py-1 rounded-lg border border-border text-xs hover:border-primary hover:text-primary transition-all"
+              >
+                {p.name}
+              </button>
+            ))}
+            <button
+              onClick={() => setAttributes([])}
+              className="px-2.5 py-1 rounded-lg border border-border text-xs text-destructive hover:border-destructive transition-all"
+            >
+              Clear all
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Category name + options */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <div className="sm:col-span-2">
+          <label className="text-xs font-medium text-foreground block mb-1.5">
+            Category Name <span className="text-destructive">*</span>
+          </label>
+          <input
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder="e.g. Pharmaceuticals, Electronics, Garments..."
+            className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+        <div className="flex items-end gap-4 pb-1">
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <input type="checkbox" checked={trackBatch} onChange={e => setTrackBatch(e.target.checked)} className="w-4 h-4 rounded" />
+            Track Batch
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <input type="checkbox" checked={trackExpiry} onChange={e => setTrackExpiry(e.target.checked)} className="w-4 h-4 rounded" />
+            Track Expiry
+          </label>
+        </div>
+      </div>
+
+      {/* Dynamic Attributes */}
+      <div className="border border-border rounded-lg overflow-hidden mb-4">
+        <div className="flex items-center justify-between px-4 py-2.5 bg-muted/30 border-b border-border">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">Dynamic Attributes</span>
+            <Badge variant="secondary" className="text-[10px]">{attributes.length}</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              These fields appear on Item form for this category
+            </span>
+            <Button size="sm" variant="outline" onClick={addAttr}>
+              <Plus size={12} /> Add Attribute
+            </Button>
+          </div>
+        </div>
+
+        {attributes.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+            <Package size={24} className="mx-auto mb-2 opacity-30" />
+            No attributes — items in this category won't have extra fields.
+          </div>
+        ) : (
+          <div className="px-4 py-2">
+            {/* Header */}
+            <div className="grid grid-cols-12 gap-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide pb-1 border-b border-border/30">
+              <div className="col-span-1"></div>
+              <div className="col-span-3">Field Key</div>
+              <div className="col-span-3">Label</div>
+              <div className="col-span-2">Type</div>
+              <div className="col-span-2">Options</div>
+              <div className="col-span-1">Req</div>
+            </div>
+            {attributes.map((a, i) => (
+              <AttrRow key={i} attr={a} index={i}
+                onChange={(idx, val) => setAttributes(prev => prev.map((x, j) => j === idx ? val : x))}
+                onDelete={(idx) => setAttributes(prev => prev.filter((_, j) => j !== idx))}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Info about what attributes do */}
+      <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg px-3 py-2 mb-4 text-xs text-blue-700 dark:text-blue-300 flex items-start gap-2">
+        <Info size={13} className="mt-0.5 shrink-0" />
+        <div>
+          <strong>What are Dynamic Attributes?</strong> These are extra fields that will appear on the Item form for items in this category.
+          For example: Pharma → Batch No, Mfg Date, Exp Date. Garments → Color, Size.
+          They are used as item <strong>variant attributes</strong> (e.g., each size/color = a variant with its own rate).
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2 text-sm text-destructive mb-3">
+          {error}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button onClick={save} loading={saving}>
+          <Check size={14} /> {isEdit ? 'Save Changes' : 'Create Category'}
+        </Button>
+        <Button variant="outline" onClick={onCancel} disabled={saving}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Category Card ─────────────────────────────────────────────────────────────
+
+function CategoryCard({ cat, onEdit }: { cat: any; onEdit: (cat: any) => void }) {
+  const qc = useQueryClient()
+  const [expanded, setExpanded] = useState(false)
+  const attrs: Attribute[] = cat.attributes || []
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/masters/item-categories/${cat.id}`)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['item-categories'] }),
+  })
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden hover:border-primary/30 transition-colors">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Tag size={15} className="text-primary shrink-0" />
+          <span className="font-semibold text-sm truncate">{cat.name}</span>
+          {cat.trackBatch && <Badge variant="warning" className="text-[9px] shrink-0">Batch</Badge>}
+          {cat.trackExpiry && <Badge variant="destructive" className="text-[9px] shrink-0">Expiry</Badge>}
+          {attrs.length > 0 && (
+            <Badge variant="secondary" className="text-[9px] shrink-0">{attrs.length} attrs</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {attrs.length > 0 && (
+            <button onClick={() => setExpanded(e => !e)}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          )}
+          <button onClick={() => onEdit(cat)}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+            <Edit size={14} />
+          </button>
+          <SafeDeleteButton
+            itemName={cat.name}
+            itemType="category"
+            onDelete={async () => { await deleteMutation.mutateAsync() }}
+            checkUsage={async () => {
+              const { data } = await api.get(`/masters/item-categories/${cat.id}/usage`)
+              return data.data
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Attributes preview */}
+      {expanded && attrs.length > 0 && (
+        <div className="border-t border-border/50 px-4 py-3 bg-muted/10">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Attributes</p>
+          <div className="flex flex-wrap gap-1.5">
+            {attrs.map((a: any, i: number) => (
+              <span key={i} className={cn(
+                'text-xs px-2 py-0.5 rounded-full border font-mono',
+                a.required ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-muted border-border text-muted-foreground'
+              )}>
+                {a.label}
+                <span className="ml-1 text-[9px] opacity-60">({a.type})</span>
+                {a.required && <span className="ml-0.5 text-destructive">*</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────────
+
+export default function ItemCategoriesPage() {
+  const { activeCompany } = useAuthStore()
+  const companyId = activeCompany?.companyId || ''
+  const [showForm, setShowForm] = useState(false)
+  const [editCat, setEditCat] = useState<any>(null)
+  const [search, setSearch] = useState('')
+
+  const { data: categories = [], isLoading } = useQuery({
+    queryKey: ['item-categories', companyId],
+    queryFn: async () => {
+      const { data } = await api.get('/masters/item-categories')
+      return data.data || []
+    },
+    enabled: !!companyId,
+  })
+
+  const filtered = (categories as any[]).filter(c =>
+    !search || c.name.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const openCreate = () => { setEditCat(null); setShowForm(true) }
+  const openEdit = (cat: any) => { setEditCat(cat); setShowForm(true) }
+  const closeForm = () => { setShowForm(false); setEditCat(null) }
 
   return (
     <div>
       <PageHeader
         title="Item Categories"
-        subtitle="Define dynamic attributes per category"
+        subtitle="Define categories with dynamic attribute fields for items — Pharma, Garments, Electronics etc."
         breadcrumbs={[{ label: 'Masters' }, { label: 'Item Categories' }]}
         actions={
-          <Button onClick={() => setShowForm(s => !s)}>
+          <Button onClick={openCreate}>
             <Plus size={15} /> New Category
           </Button>
         }
       />
 
-      {/* New category form */}
+      {/* Form */}
       {showForm && (
-        <div className="form-section mb-4">
-          <h3 className="form-section-title">New Category</h3>
+        <CategoryForm
+          editCat={editCat}
+          onSaved={closeForm}
+          onCancel={closeForm}
+        />
+      )}
 
-          {/* Presets */}
-          <div className="mb-4">
-            <p className="text-xs text-muted-foreground mb-2">Quick presets:</p>
-            <div className="flex flex-wrap gap-2">
-              {PRESET_CATEGORIES.map(p => (
-                <button key={p.name} type="button" onClick={() => applyPreset(p)}
-                  className="text-xs px-3 py-1.5 rounded-full border border-border hover:border-primary hover:text-primary transition-colors">
-                  {p.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 mb-4">
-            <div className="col-span-2">
-              <Input label="Category Name" required placeholder="e.g. Textiles, Pharmaceuticals"
-                value={name} onChange={e => setName(e.target.value)} />
-            </div>
-            <div className="flex flex-col gap-2 pt-6">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={trackBatch} onChange={e => setTrackBatch(e.target.checked)} className="w-4 h-4" />
-                Track Batch
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" checked={trackExpiry} onChange={e => setTrackExpiry(e.target.checked)} className="w-4 h-4" />
-                Track Expiry
-              </label>
-            </div>
-          </div>
-
-          {/* Attribute builder */}
-          <div className="border border-border rounded-lg overflow-hidden mb-4">
-            <div className="bg-muted px-4 py-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Dynamic Attributes ({attributes.length})
-              </span>
-              <Button variant="ghost" size="sm" onClick={addAttribute}>
-                <Plus size={13} /> Add Attribute
-              </Button>
-            </div>
-
-            {attributes.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-                No attributes defined. Click "Add Attribute" or use a preset.
-              </div>
-            ) : (
-              <div className="p-3">
-                <div className="grid grid-cols-12 gap-2 mb-1 px-1">
-                  {['', 'Field Name', 'Label', 'Type', 'Options', 'Req', ''].map((h, i) => (
-                    <div key={i} className={`text-[10px] uppercase tracking-wide text-muted-foreground font-medium ${i === 0 ? 'col-span-1' : i === 4 ? 'col-span-3' : i === 5 ? 'col-span-1' : i === 6 ? 'col-span-1' : 'col-span-2'}`}>{h}</div>
-                  ))}
-                </div>
-                {attributes.map((attr, i) => (
-                  <AttributeRow key={i} attr={attr} index={i}
-                    onChange={updateAttribute} onDelete={deleteAttribute} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          {saveError && (
-            <div className="text-sm text-destructive bg-destructive/10 rounded px-3 py-2 mb-3">{saveError}</div>
-          )}
-
-          <div className="flex gap-2">
-            <Button onClick={handleSave} loading={createCategory.isPending}>
-              <Check size={15} /> Save Category
-            </Button>
-            <Button variant="outline" onClick={() => { setShowForm(false); setSaveError('') }}>
-              <X size={15} /> Cancel
-            </Button>
-          </div>
+      {/* Search */}
+      {(categories as any[]).length > 0 && !showForm && (
+        <div className="mb-4">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search categories..."
+            className="h-9 w-64 rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </div>
       )}
 
-      {/* Existing categories */}
+      {/* List */}
       {isLoading ? (
-        <div className="flex justify-center py-12"><Spinner /></div>
-      ) : categories.length === 0 && !showForm ? (
-        <EmptyState
-          icon={<Tag size={40} />}
-          title="No categories yet"
-          description="Create categories to enable dynamic attributes on items"
-          action={<Button onClick={() => setShowForm(true)}><Plus size={15} /> New Category</Button>}
-        />
+        <div className="flex justify-center py-16"><Spinner /></div>
+      ) : (categories as any[]).length === 0 ? (
+        <div className="text-center py-16 bg-card border border-border rounded-xl">
+          <Tag size={36} className="mx-auto mb-3 text-muted-foreground opacity-30" />
+          <p className="font-semibold text-base mb-1">No categories yet</p>
+          <p className="text-sm text-muted-foreground mb-4">
+            Create categories to organize items and add dynamic attributes
+          </p>
+          <Button onClick={openCreate}><Plus size={14} /> Create First Category</Button>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {categories.map((cat: any) => {
-            const attrs = (cat.attributes || []) as Attribute[]
-            return (
-              <Card key={cat.id}>
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <h3 className="font-medium text-sm text-foreground">{cat.name}</h3>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {cat._count?.items || 0} items
-                      </p>
-                    </div>
-                    <div className="flex gap-1">
-                      {cat.trackBatch && <Badge variant="info" className="text-[10px]">Batch</Badge>}
-                      {cat.trackExpiry && <Badge variant="warning" className="text-[10px]">Expiry</Badge>}
-                    </div>
-                  </div>
-                  {attrs.length > 0 ? (
-                    <div className="space-y-1">
-                      {attrs.map(a => (
-                        <div key={a.name} className="flex items-center justify-between text-xs">
-                          <span className="font-mono text-muted-foreground">{a.name}</span>
-                          <div className="flex items-center gap-1">
-                            <Badge variant="secondary" className="text-[10px]">{a.type}</Badge>
-                            {a.required && <Badge variant="destructive" className="text-[10px]">req</Badge>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground italic">No dynamic attributes</p>
-                  )}
-                  {/* Actions */}
-                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
-                    <button
-                      className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium"
-                      onClick={() => {
-                        setEditCatId(cat.id)
-                        setShowForm(true)
-                      }}
-                    >
-                      <Edit size={11} /> Edit
-                    </button>
-                    <SafeDeleteButton
-                      entityType="item-category"
-                      entityId={cat.id}
-                      entityName={cat.name}
-                      onDeleted={() => qc.invalidateQueries({ queryKey: ['item-categories'] })}
-                      size="icon-sm"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )
-          })}
+        <div className="space-y-2">
+          {filtered.map((cat: any) => (
+            <CategoryCard key={cat.id} cat={cat} onEdit={openEdit} />
+          ))}
+          {filtered.length === 0 && search && (
+            <p className="text-center text-sm text-muted-foreground py-8">No categories match "{search}"</p>
+          )}
         </div>
       )}
     </div>
