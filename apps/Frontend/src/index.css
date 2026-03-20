@@ -1,0 +1,208 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&family=Syne:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Core palette — deep slate + saffron accent (India ERP) */
+    --background:    220 14% 96%;
+    --foreground:    222 47% 11%;
+
+    --card:          0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --primary:       222 83% 54%;      /* Indigo blue */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary:     220 13% 91%;
+    --secondary-foreground: 222 47% 20%;
+
+    --muted:         220 13% 91%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent:        30 95% 52%;       /* Saffron accent */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive:   0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border:        220 13% 87%;
+    --input:         220 13% 87%;
+    --ring:          222 83% 54%;
+    --radius:        0.5rem;
+
+    /* ERP Semantic */
+    --success:       142 71% 45%;
+    --success-foreground: 0 0% 100%;
+    --success-muted: 142 40% 94%;
+
+    --warning:       38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+    --warning-muted: 38 92% 95%;
+
+    --info:          199 89% 48%;
+    --info-foreground: 0 0% 100%;
+    --info-muted:    199 89% 94%;
+
+    /* Accounting colors */
+    --debit:         0 72% 51%;        /* Red for debit */
+    --credit:        142 71% 38%;      /* Green for credit */
+
+    /* Sidebar */
+    --sidebar:       222 47% 11%;
+    --sidebar-foreground: 220 20% 80%;
+    --sidebar-accent: 222 40% 18%;
+    --sidebar-border: 222 40% 16%;
+  }
+
+  .dark {
+    --background:    222 47% 7%;
+    --foreground:    210 40% 94%;
+
+    --card:          222 47% 10%;
+    --card-foreground: 210 40% 94%;
+
+    --primary:       213 93% 68%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary:     222 40% 14%;
+    --secondary-foreground: 210 40% 80%;
+
+    --muted:         222 40% 14%;
+    --muted-foreground: 215 20% 55%;
+
+    --accent:        30 95% 52%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive:   0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border:        222 40% 16%;
+    --input:         222 40% 16%;
+    --ring:          213 93% 68%;
+
+    --success:       142 71% 45%;
+    --success-muted: 142 40% 12%;
+    --warning:       38 92% 50%;
+    --warning-muted: 38 60% 12%;
+    --info:          199 89% 48%;
+    --info-muted:    199 60% 12%;
+
+    --debit:         0 72% 60%;
+    --credit:        142 71% 50%;
+
+    --sidebar:       222 47% 8%;
+    --sidebar-foreground: 220 20% 75%;
+    --sidebar-accent: 222 40% 13%;
+    --sidebar-border: 222 40% 13%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Indian rupee number display */
+  .rupee-display {
+    @apply font-mono text-right tabular-nums;
+  }
+
+  /* Amount colors */
+  .amount-debit  { color: hsl(var(--debit)); }
+  .amount-credit { color: hsl(var(--credit)); }
+
+  /* Voucher print styles */
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white; font-size: 11px; }
+    .print-full { width: 100% !important; max-width: none !important; }
+  }
+}
+
+@layer components {
+  /* ERP Table */
+  .erp-table {
+    @apply w-full text-sm border-collapse;
+  }
+  .erp-table th {
+    @apply bg-muted text-muted-foreground font-medium text-left px-3 py-2.5
+           border-b border-border sticky top-0 whitespace-nowrap text-xs uppercase tracking-wider;
+  }
+  .erp-table td {
+    @apply px-3 py-2.5 border-b border-border/50 align-middle;
+  }
+  .erp-table tr:hover td {
+    @apply bg-muted/30;
+  }
+  .erp-table tr:last-child td {
+    @apply border-b-0;
+  }
+  .erp-table .amount-col {
+    @apply text-right font-mono tabular-nums;
+  }
+
+  /* Voucher item grid */
+  .item-grid th { @apply bg-primary/8 text-primary text-xs font-semibold uppercase tracking-wide; }
+
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .badge-posted   { @apply bg-success-muted text-success; }
+  .badge-draft    { @apply bg-muted text-muted-foreground; }
+  .badge-cancelled{ @apply bg-destructive/10 text-destructive; }
+
+  /* Page header */
+  .page-header {
+    @apply flex items-center justify-between mb-6 pb-4 border-b border-border;
+  }
+  .page-title {
+    @apply text-xl font-display font-semibold text-foreground;
+  }
+  .page-subtitle {
+    @apply text-sm text-muted-foreground mt-0.5;
+  }
+
+  /* Sidebar nav item */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-md text-sm
+           text-sidebar-foreground/70 hover:text-sidebar-foreground
+           hover:bg-sidebar-accent transition-colors cursor-pointer;
+  }
+  .nav-item.active {
+    @apply bg-sidebar-accent text-sidebar-foreground font-medium;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply rounded bg-muted;
+    background: linear-gradient(90deg, hsl(var(--muted)) 25%, hsl(var(--secondary)) 50%, hsl(var(--muted)) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Stat card */
+  .stat-card {
+    @apply bg-card rounded-lg border border-border p-4 flex flex-col gap-1;
+  }
+  .stat-value {
+    @apply text-2xl font-display font-semibold tabular-nums;
+  }
+  .stat-label {
+    @apply text-xs text-muted-foreground uppercase tracking-wide;
+  }
+
+  /* Form section */
+  .form-section {
+    @apply bg-card rounded-lg border border-border p-5 space-y-4;
+  }
+  .form-section-title {
+    @apply text-sm font-semibold text-foreground border-b border-border pb-2 mb-4;
+  }
+}
