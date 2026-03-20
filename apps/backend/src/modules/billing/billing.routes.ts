@@ -39,25 +39,112 @@ const voucherLedgerSchema = z.object({
   narration: z.string().optional(),
 })
 
+// ─── Voucher types that REQUIRE party ──────────────────────────────────────────
+const PARTY_REQUIRED_TYPES = new Set<string>([
+  'SALE', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE',
+  'PURCHASE_ORDER', 'PURCHASE_CHALLAN', 'RECEIPT', 'PAYMENT',
+])
+
+// ─── Voucher types that REQUIRE vendor reference (bill no + date) ─────────────
+const VENDOR_REF_REQUIRED = new Set<string>(['PURCHASE'])
+
+// ─── Voucher types that REQUIRE original reference ────────────────────────────
+const REF_REQUIRED = new Set<string>(['CREDIT_NOTE', 'DEBIT_NOTE'])
+
+// ─── Voucher types that need items ───────────────────────────────────────────
+const ITEMS_REQUIRED = new Set<string>([
+  'SALE', 'PURCHASE', 'CREDIT_NOTE', 'DEBIT_NOTE',
+  'SALE_CHALLAN', 'PURCHASE_ORDER', 'PURCHASE_CHALLAN', 'PRODUCTION',
+])
+
+// ─── Voucher types that need balanced ledger entries ─────────────────────────
+const LEDGER_BALANCED_TYPES = new Set<string>(['RECEIPT', 'PAYMENT', 'CONTRA', 'JOURNAL'])
+
 const voucherSchema = z.object({
   voucherType: z.nativeEnum(VoucherType),
-  date: z.string(),
+  date: z.string().min(1, 'Date is required'),
   branchId: z.string().uuid().optional().nullable(),
   partyId: z.string().uuid().optional().nullable(),
   narration: z.string().optional(),
   placeOfSupply: z.string().optional(),
   isReverseCharge: z.boolean().default(false),
   isExport: z.boolean().default(false),
-  isInclusive: z.boolean().default(false),  // GST inclusive pricing
+  isInclusive: z.boolean().default(false),
   saleType: z.string().optional().nullable(),
   lut: z.string().optional().nullable(),
   lutDate: z.string().optional().nullable(),
+  // Vendor/Reference bill details
   refVoucherType: z.nativeEnum(VoucherType).optional().nullable(),
   refVoucherNumber: z.string().optional().nullable(),
   refVoucherDate: z.string().optional().nullable(),
   items: z.array(voucherItemSchema).optional().default([]),
   ledgerEntries: z.array(voucherLedgerSchema).optional().default([]),
   roundOff: z.coerce.number().default(0),
+}).superRefine((data, ctx) => {
+  // 1. Date validation
+  if (!data.date) {
+    ctx.addIssue({ code: 'custom', path: ['date'], message: 'Date is required' })
+  } else {
+    const d = new Date(data.date)
+    if (isNaN(d.getTime())) {
+      ctx.addIssue({ code: 'custom', path: ['date'], message: 'Invalid date' })
+    }
+  }
+
+  // 2. Party required for certain types
+  if (PARTY_REQUIRED_TYPES.has(data.voucherType) && !data.partyId) {
+    const label = ['SALE', 'CREDIT_NOTE', 'SALE_CHALLAN'].includes(data.voucherType) ? 'Customer' : 'Vendor'
+    ctx.addIssue({ code: 'custom', path: ['partyId'], message: `${label} is required` })
+  }
+
+  // 3. Vendor bill number + date required for Purchase
+  if (VENDOR_REF_REQUIRED.has(data.voucherType)) {
+    if (!data.refVoucherNumber?.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['refVoucherNumber'], message: 'Vendor bill number is required for Purchase' })
+    }
+    if (!data.refVoucherDate) {
+      ctx.addIssue({ code: 'custom', path: ['refVoucherDate'], message: 'Vendor bill date is required for Purchase' })
+    }
+  }
+
+  // 4. Original reference required for Credit/Debit Note
+  if (REF_REQUIRED.has(data.voucherType) && !data.refVoucherNumber?.trim()) {
+    const label = data.voucherType === 'CREDIT_NOTE' ? 'Original sale invoice number' : 'Original purchase invoice number'
+    ctx.addIssue({ code: 'custom', path: ['refVoucherNumber'], message: `${label} is required` })
+  }
+
+  // 5. Items required for inventory/billing vouchers
+  if (ITEMS_REQUIRED.has(data.voucherType)) {
+    if (!data.items || data.items.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['items'], message: 'At least one item is required' })
+    } else {
+      data.items.forEach((item, i) => {
+        if (!item.itemId) {
+          ctx.addIssue({ code: 'custom', path: [`items.${i}.itemId`], message: 'Item must be selected' })
+        }
+        if (!item.qty || Number(item.qty) <= 0) {
+          ctx.addIssue({ code: 'custom', path: [`items.${i}.qty`], message: 'Quantity must be greater than 0' })
+        }
+        if (item.rate === undefined || Number(item.rate) < 0) {
+          ctx.addIssue({ code: 'custom', path: [`items.${i}.rate`], message: 'Rate cannot be negative' })
+        }
+      })
+    }
+  }
+
+  // 6. Ledger entries balanced for accounting vouchers
+  if (LEDGER_BALANCED_TYPES.has(data.voucherType) && data.ledgerEntries.length > 0) {
+    const totalDebit = data.ledgerEntries.reduce((s, e) => s + Number(e.debit || 0), 0)
+    const totalCredit = data.ledgerEntries.reduce((s, e) => s + Number(e.credit || 0), 0)
+    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+      ctx.addIssue({ code: 'custom', path: ['ledgerEntries'], message: `Entries not balanced. Debit: ₹${totalDebit.toFixed(2)}, Credit: ₹${totalCredit.toFixed(2)}` })
+    }
+  }
+
+  // 7. Place of supply required for GST vouchers
+  if (['SALE', 'PURCHASE'].includes(data.voucherType) && !data.placeOfSupply) {
+    ctx.addIssue({ code: 'custom', path: ['placeOfSupply'], message: 'Place of supply is required' })
+  }
 })
 
 // ─── VOUCHER TYPES that affect inventory ─────────────────────────────────────
@@ -165,7 +252,8 @@ billingRouter.get('/vouchers/:id', async (req: Request, res: Response) => {
 billingRouter.post('/vouchers', async (req: Request, res: Response) => {
   const body = voucherSchema.safeParse(req.body)
   if (!body.success) {
-    throw new BadRequestError(body.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join('; '))
+    const msgs = body.error.errors.map(e => e.message).join(', ')
+    throw new BadRequestError(msgs)
   }
 
   const data = body.data
@@ -368,16 +456,18 @@ billingRouter.post('/vouchers/:id/post', async (req: Request, res: Response) => 
     // FIFO consumption for sale-type vouchers
     if (INVENTORY_OUT_TYPES.has(voucher.voucherType)) {
       for (const item of voucher.items) {
-        const consumed = await consumeFIFO(
-          tx,
-          item.itemId,
-          item.variantId,
-          null,
-          Number(item.qty),
-          voucher.date
-        )
+        // Check if item maintains stock
+        const itemRecord = await tx.item.findUnique({ where: { id: item.itemId }, select: { maintainStock: true, saleRate: true } })
+        if (!itemRecord?.maintainStock) continue
 
-        const totalCost = consumed.reduce((s, c) => s + c.value, 0)
+        let totalCost = 0
+        try {
+          const consumed = await consumeFIFO(tx, item.itemId, item.variantId, null, Number(item.qty), voucher.date)
+          totalCost = consumed.reduce((s, c) => s + c.value, 0)
+        } catch (fifoErr: any) {
+          // If insufficient stock, use sale rate as cost (allow negative stock)
+          totalCost = Number(item.rate) * Number(item.qty)
+        }
 
         await tx.stockMovement.create({
           data: {
@@ -388,7 +478,7 @@ billingRouter.post('/vouchers/:id/post', async (req: Request, res: Response) => 
             date: voucher.date,
             movementType: MovementType.OUT,
             qty: Number(item.qty),
-            rate: totalCost / Number(item.qty),
+            rate: Number(item.qty) > 0 ? totalCost / Number(item.qty) : 0,
             value: totalCost,
             financialYear: voucher.financialYear,
           },

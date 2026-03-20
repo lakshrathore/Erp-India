@@ -66,10 +66,27 @@ export function getFinancialYear(date: Date = new Date()): string {
 }
 
 export function getFYLabel(fy: string): string {
-  // "25-26" → "FY 2025-26"
+  // "25-26" → "FY 2025-26" or "2025-26" → "FY 2025-26"
   const parts = fy.split('-')
   if (parts.length !== 2) return fy
-  return `FY 20${parts[0]}-${parts[1]}`
+  const y = parseInt(parts[0])
+  const year = y < 100 ? `20${parts[0]}` : parts[0]
+  const year2 = y < 100 ? parts[1] : String(y + 1).slice(2)
+  return `FY ${year}-${year2}`
+}
+
+// ─── Parse FY string to start/end dates ───────────────────────────────────────
+// Handles both "25-26" and "2025-26" formats safely
+export function parseFYDates(fy: string | null): { from: string; to: string } {
+  if (!fy) {
+    const now = new Date()
+    const y = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+    return { from: `${y}-04-01`, to: `${y + 1}-03-31` }
+  }
+  const startPart = fy.split('-')[0]
+  const raw = parseInt(startPart)
+  const year = raw < 100 ? 2000 + raw : raw
+  return { from: `${year}-04-01`, to: `${year + 1}-03-31` }
 }
 
 export function getGSTRPeriodLabel(period: string): string {

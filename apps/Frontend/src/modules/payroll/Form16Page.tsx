@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { formatINR, formatDate, amountInWords } from '../../lib/india'
+import { formatINR, formatDate, amountInWords , parseFYDates } from '../../lib/india'
 import { Button, Select, PageHeader, Spinner, EmptyState, Badge } from '../../components/ui'
 import { Printer, Download, FileText } from 'lucide-react'
 import dayjs from 'dayjs'
@@ -20,7 +20,7 @@ export default function Form16Page() {
   })
 
   // Get all 12 months salary for this employee + FY
-  const startYear = 2000 + parseInt(fy.split('-')[0])
+  const startYear = parseInt(parseFYDates(fy).from.substring(0, 4))
   const months = [
     { month: 4, year: startYear }, { month: 5, year: startYear },
     { month: 6, year: startYear }, { month: 7, year: startYear },

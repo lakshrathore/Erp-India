@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { formatINR, formatDate } from '../../lib/india'
+import { formatINR, formatDate , parseFYDates } from '../../lib/india'
 import { Button, Badge, PageHeader, Spinner, Select, EmptyState } from '../../components/ui'
 import { useParties } from '../../hooks/api.hooks'
 import { useAuthStore } from '../../stores/auth.store'
@@ -16,7 +16,7 @@ interface ReportPageProps {
 
 function SalePurchaseReport({ voucherType, title, icon }: ReportPageProps) {
   const { activeFY } = useAuthStore()
-  const [from, setFrom] = useState(activeFY ? `20${activeFY.split('-')[0]}-04-01` : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
+  const [from, setFrom] = useState(activeFY ? parseFYDates(activeFY).from : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'))
   const [partyId, setPartyId] = useState('')
   const [groupBy, setGroupBy] = useState<'invoice' | 'party' | 'month'>('invoice')

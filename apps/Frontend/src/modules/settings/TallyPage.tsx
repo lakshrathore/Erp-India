@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api, extractError } from '../../lib/api'
-import { formatINR, formatDate } from '../../lib/india'
+import { formatINR, formatDate , parseFYDates } from '../../lib/india'
 import { Button, Badge, PageHeader, Spinner, Select, Input } from '../../components/ui'
 import { Download, Upload, FileText, CheckCircle2, AlertCircle } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth.store'
@@ -10,7 +10,7 @@ import dayjs from 'dayjs'
 export default function TallyImportExportPage() {
   const { activeFY } = useAuthStore()
   const [activeTab, setActiveTab] = useState<'export' | 'import'>('export')
-  const [from, setFrom] = useState(activeFY ? `20${activeFY.split('-')[0]}-04-01` : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
+  const [from, setFrom] = useState(activeFY ? parseFYDates(activeFY).from : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'))
   const [exportType, setExportType] = useState('ALL')
   const [exportMsg, setExportMsg] = useState('')

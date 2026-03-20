@@ -17,6 +17,7 @@ import { gstRouter } from './modules/gst/gst.routes'
 import { payrollRouter } from './modules/payroll/payroll.routes'
 import { inventoryRouter } from './modules/inventory/inventory.routes'
 import { assetsRouter } from './modules/assets/assets.routes'
+import { resetRouter } from './modules/company/reset.routes'
 import { logger } from './lib/logger'
 
 const app = express()
@@ -70,6 +71,7 @@ app.use('/api/gst', gstRouter)
 app.use('/api/payroll', payrollRouter)
 app.use('/api/inventory', inventoryRouter)
 app.use('/api/assets', assetsRouter)
+app.use('/api/reset', resetRouter)
 
 // 404 handler
 app.use((_req, res) => {

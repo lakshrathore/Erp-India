@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { formatINR, formatDate } from '../../lib/india'
+import { formatINR, formatDate , parseFYDates } from '../../lib/india'
 import { Button, Badge, PageHeader, Spinner, Select, EmptyState } from '../../components/ui'
 import { useItems } from '../../hooks/api.hooks'
 import { BookOpen, Printer } from 'lucide-react'
@@ -11,7 +11,7 @@ import dayjs from 'dayjs'
 export default function ItemLedgerPage() {
   const { activeFY } = useAuthStore()
   const [itemId, setItemId] = useState('')
-  const [from, setFrom] = useState(activeFY ? `20${activeFY.split('-')[0]}-04-01` : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
+  const [from, setFrom] = useState(activeFY ? parseFYDates(activeFY).from : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'))
 
   const { data: itemsData } = useItems({ limit: 500, isActive: 'true' })

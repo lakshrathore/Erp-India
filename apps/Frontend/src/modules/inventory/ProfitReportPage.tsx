@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { formatINR } from '../../lib/india'
+import { formatINR , parseFYDates } from '../../lib/india'
 import { Button, PageHeader, Spinner, EmptyState } from '../../components/ui'
 import { TrendingUp, Printer, Download } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth.store'
@@ -9,7 +9,7 @@ import dayjs from 'dayjs'
 
 export default function InventoryProfitPage() {
   const { activeFY } = useAuthStore()
-  const [from, setFrom] = useState(activeFY ? `20${activeFY.split('-')[0]}-04-01` : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
+  const [from, setFrom] = useState(activeFY ? parseFYDates(activeFY).from : dayjs().subtract(1, 'year').format('YYYY-MM-DD'))
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'))
 
   const { data, isLoading } = useQuery({

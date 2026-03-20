@@ -58,7 +58,7 @@ Button.displayName = 'Button'
 // ─── Input ────────────────────────────────────────────────────────────────────
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label?: string
+  label?: string | React.ReactNode
   error?: string
   helperText?: string
   leftIcon?: React.ReactNode
@@ -67,7 +67,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, label, error, helperText, leftIcon, rightIcon, id, ...props }, ref) => {
-    const inputId = id || label?.toLowerCase().replace(/\s+/g, '-')
+    const inputId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
     return (
       <div className="space-y-1.5">
         {label && (
@@ -116,7 +116,7 @@ Input.displayName = 'Input'
 export interface SelectOption { value: string; label: string; disabled?: boolean }
 
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string
+  label?: string | React.ReactNode
   error?: string
   options: SelectOption[]
   placeholder?: string
@@ -124,7 +124,7 @@ export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElemen
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({ className, label, error, options, placeholder, id, ...props }, ref) => {
-    const inputId = id || label?.toLowerCase().replace(/\s+/g, '-')
+    const inputId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
     return (
       <div className="space-y-1.5">
         {label && (
@@ -160,13 +160,13 @@ Select.displayName = 'Select'
 // ─── Textarea ─────────────────────────────────────────────────────────────────
 
 export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
-  label?: string
+  label?: string | React.ReactNode
   error?: string
 }
 
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
   ({ className, label, error, id, ...props }, ref) => {
-    const inputId = id || label?.toLowerCase().replace(/\s+/g, '-')
+    const inputId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
     return (
       <div className="space-y-1.5">
         {label && (
@@ -337,7 +337,7 @@ export function Spinner({ className }: { className?: string }) {
 
 interface PageHeaderProps {
   title: string
-  subtitle?: string
+  subtitle?: string | React.ReactNode
   actions?: React.ReactNode
   breadcrumbs?: Array<{ label: string; href?: string }>
 }
@@ -361,7 +361,7 @@ export function PageHeader({ title, subtitle, actions, breadcrumbs }: PageHeader
           </div>
         )}
         <h1 className="page-title">{title}</h1>
-        {subtitle && <p className="page-subtitle">{subtitle}</p>}
+        {subtitle && <div className="page-subtitle">{subtitle}</div>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../lib/api'
-import { formatINR, formatDate } from '../../lib/india'
+import { formatINR, formatDate , parseFYDates } from '../../lib/india'
 import { Button, Badge, PageHeader, Spinner, EmptyState } from '../../components/ui'
 import { FileText } from 'lucide-react'
 import dayjs from 'dayjs'
@@ -28,7 +28,7 @@ export default function TDSTCSPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['tds-entries', quarter, year],
     queryFn: async () => {
-      const fyStart = `20${year.split('-')[0]}`
+      const fyStart = parseFYDates(year).from.substring(0,4)
       const quarterMonths: Record<string, [number, number]> = {
         Q1: [4, 6], Q2: [7, 9], Q3: [10, 12], Q4: [1, 3],
       }

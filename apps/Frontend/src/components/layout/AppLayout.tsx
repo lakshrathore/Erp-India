@@ -5,11 +5,10 @@ import {
   FileText, Users, Settings, ChevronDown, ChevronRight,
   Building2, BarChart3, CreditCard, Receipt, Wallet,
   ClipboardList, UserCheck, Menu, LogOut, Bell, X,
-  Building, ChevronLeft, TrendingUp, TrendingDown, User, RefreshCcw, Printer, Plus,
+  Building, ChevronLeft, TrendingUp, TrendingDown, User, RefreshCcw, Printer, Plus, Trash2,
 } from 'lucide-react'
 import { cn } from '../ui/utils'
 import { useAuthStore } from '../../stores/auth.store'
-import { useLogout } from '../../hooks/api.hooks'
 import { Button } from '../ui'
 
 interface NavItem {
@@ -117,6 +116,7 @@ const NAV: NavItem[] = [
       { label: 'Transaction Settings', icon: Settings, href: '/settings/transaction' },
       { label: 'Ledger Mapping', icon: BookOpen, href: '/settings/ledger-mapping' },
       { label: 'Print Setup', icon: Printer, href: '/settings/print-setup' },
+      { label: 'Data Management', icon: Trash2, href: '/settings/data-management' },
       { label: 'Tally Import/Export', icon: FileText, href: '/settings/tally' },
     ],
   },
@@ -184,7 +184,7 @@ function NavItemComp({ item, depth = 0, onNavigate }: { item: NavItem; depth?: n
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const { activeCompany, activeFY, user } = useAuthStore()
-  const { logout } = useLogout()
+  const logoutFn = useAuthStore(s => s.logout)
 
   return (
     <div className="flex flex-col h-full">
@@ -222,7 +222,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <RefreshCcw size={14} className="shrink-0" />
           <span>Switch Company</span>
         </Link>
-        <button onClick={() => logout()}
+        <button onClick={() => { logoutFn(); window.location.href = '/login' }}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
           <LogOut size={14} className="shrink-0" />
           <span>Logout</span>

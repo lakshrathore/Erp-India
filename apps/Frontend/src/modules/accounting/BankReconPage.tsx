@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, extractError } from '../../lib/api'
-import { formatINR, formatDate } from '../../lib/india'
+import { formatINR, formatDate , parseFYDates } from '../../lib/india'
 import { Button, Badge, PageHeader, Spinner, Select, EmptyState } from '../../components/ui'
 import { useLedgers } from '../../hooks/api.hooks'
 import { Upload, CheckCircle2, AlertCircle, Link } from 'lucide-react'
@@ -16,7 +16,7 @@ export default function BankReconPage() {
   const bankLedgers = (ledgers as any[]).filter((l: any) => l.group?.name === 'Bank Accounts')
 
   const [ledgerId, setLedgerId] = useState('')
-  const [from, setFrom] = useState(activeFY ? `20${activeFY.split('-')[0]}-04-01` : dayjs().subtract(30, 'day').format('YYYY-MM-DD'))
+  const [from, setFrom] = useState(activeFY ? parseFYDates(activeFY).from : dayjs().subtract(30, 'day').format('YYYY-MM-DD'))
   const [to, setTo] = useState(dayjs().format('YYYY-MM-DD'))
   const [uploadError, setUploadError] = useState('')
   const [selectedBankEntry, setSelectedBankEntry] = useState<string | null>(null)

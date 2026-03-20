@@ -76,7 +76,7 @@ const itemRowSchema = z.object({
 })
 
 const voucherFormSchema = z.object({
-  date: z.string().min(1),
+  date: z.string().min(1, 'Date is required'),
   branchId: z.string().optional(),
   partyId: z.string().optional(),
   narration: z.string().optional(),
@@ -86,11 +86,63 @@ const voucherFormSchema = z.object({
   lutDate: z.string().optional(),
   isReverseCharge: z.boolean().default(false),
   isInclusive: z.boolean().default(false),
-  items: z.array(itemRowSchema).min(1),
+  // Vendor/Reference bill fields
+  refVoucherNumber: z.string().optional(),
+  refVoucherDate: z.string().optional(),
+  items: z.array(itemRowSchema).min(1, 'At least one item is required'),
   roundOff: z.coerce.number().default(0),
 })
 
 type VoucherFormValues = z.infer<typeof voucherFormSchema>
+
+// ─── Voucher type validation rules ────────────────────────────────────────────
+
+const PARTY_REQUIRED = new Set(['SALE','PURCHASE','CREDIT_NOTE','DEBIT_NOTE','PURCHASE_ORDER','PURCHASE_CHALLAN','RECEIPT','PAYMENT'])
+const VENDOR_REF_REQUIRED = new Set(['PURCHASE'])
+const REF_REQUIRED = new Set(['CREDIT_NOTE','DEBIT_NOTE'])
+const PLACE_OF_SUPPLY_REQUIRED = new Set(['SALE','PURCHASE'])
+
+function validateVoucher(values: any, voucherType: VoucherType): string[] {
+  const errors: string[] = []
+  
+  // Date
+  if (!values.date) errors.push('Date is required')
+  
+  // Party
+  if (PARTY_REQUIRED.has(voucherType) && !values.partyId) {
+    const label = ['SALE','CREDIT_NOTE','SALE_CHALLAN'].includes(voucherType) ? 'Customer' : 'Vendor'
+    errors.push(`${label} is required`)
+  }
+  
+  // Place of supply
+  if (PLACE_OF_SUPPLY_REQUIRED.has(voucherType) && !values.placeOfSupply) {
+    errors.push('Place of supply is required')
+  }
+  
+  // Vendor bill number + date (Purchase)
+  if (VENDOR_REF_REQUIRED.has(voucherType)) {
+    if (!values.refVoucherNumber?.trim()) errors.push('Vendor bill number is required')
+    if (!values.refVoucherDate) errors.push('Vendor bill date is required')
+  }
+  
+  // Reference for credit/debit note
+  if (REF_REQUIRED.has(voucherType) && !values.refVoucherNumber?.trim()) {
+    const label = voucherType === 'CREDIT_NOTE' ? 'Original sale invoice number' : 'Original purchase bill number'
+    errors.push(`${label} is required`)
+  }
+  
+  // Items
+  if (!values.items || values.items.length === 0) {
+    errors.push('At least one item is required')
+  } else {
+    values.items.forEach((item: any, i: number) => {
+      if (!item.itemId) errors.push(`Row ${i+1}: Item must be selected`)
+      else if (!item.qty || Number(item.qty) <= 0) errors.push(`Row ${i+1}: Quantity must be > 0`)
+    })
+  }
+  
+  return errors
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -498,6 +550,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
   const [savedStatus, setSavedStatus] = useState(initial?.status || '')
   const [showDisc2, setShowDisc2] = useState(false)
   const [showDisc3, setShowDisc3] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<string[]>([])
 
   const isPurchase = ['PURCHASE', 'PURCHASE_ORDER', 'PURCHASE_CHALLAN', 'DEBIT_NOTE'].includes(voucherType)
   const isSale = ['SALE', 'CREDIT_NOTE', 'SALE_CHALLAN'].includes(voucherType)
@@ -509,6 +562,7 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
       branchId: '', partyId: '', narration: '',
       placeOfSupply: '08', saleType: 'REGULAR',
       lut: '', isReverseCharge: false, isInclusive: false,
+      refVoucherNumber: '', refVoucherDate: '',
       items: [{
         itemId: '', variantId: null, unit: 'PCS',
         qty: 1, freeQty: 0, rate: 0,
@@ -625,6 +679,8 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
     lutDate: values.lutDate || null,
     isReverseCharge: values.isReverseCharge,
     isInclusive: values.isInclusive,
+    refVoucherNumber: values.refVoucherNumber || null,
+    refVoucherDate: values.refVoucherDate || null,
     isExport: ['EXPORT_WITH_LUT', 'EXPORT_WITHOUT_LUT'].includes(values.saleType),
     items: values.items.map(r => ({
       itemId: r.itemId,
@@ -644,6 +700,10 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
   })
 
   const onSaveDraft = async (values: VoucherFormValues) => {
+    // Frontend validation
+    const errs = validateVoucher(values, voucherType)
+    if (errs.length > 0) { setValidationErrors(errs); return }
+    setValidationErrors([])
     setSaveError(''); setSaving(true)
     try {
       if (savedId) {
@@ -723,6 +783,18 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
         </div>
       </div>
 
+      {/* Frontend validation errors */}
+      {validationErrors.length > 0 && (
+        <div className="bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3 text-sm text-destructive">
+          <div className="flex items-center gap-2 font-semibold mb-1.5">
+            <AlertCircle size={15} /> Please fix the following errors:
+          </div>
+          <ul className="space-y-0.5 ml-5 list-disc text-xs">
+            {validationErrors.map((e, i) => <li key={i}>{e}</li>)}
+          </ul>
+        </div>
+      )}
+
       {saveError && (
         <div className="flex items-center gap-2 bg-destructive/10 border border-destructive/20 rounded-lg px-4 py-3 text-sm text-destructive">
           <AlertCircle size={15} /> {saveError}
@@ -774,6 +846,54 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
               <>
                 <Input label="LUT Number" className="font-mono" placeholder="AD123456789012" {...form.register('lut')} />
                 <Input label="LUT Date" type="date" {...form.register('lutDate')} />
+              </>
+            )}
+
+            {/* Vendor bill reference — Purchase */}
+            {isPurchase && (
+              <>
+                <div>
+                  <Input
+                    label={<span>Vendor Bill No. <span className="text-destructive">*</span></span>}
+                    placeholder="e.g. INV/2024/0001"
+                    className="font-mono"
+                    {...form.register('refVoucherNumber')}
+                    helperText="Supplier's invoice number"
+                  />
+                </div>
+                <div>
+                  <Input
+                    label={<span>Vendor Bill Date <span className="text-destructive">*</span></span>}
+                    type="date"
+                    {...form.register('refVoucherDate')}
+                    helperText="Date on supplier's invoice"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Original reference — Credit/Debit Note */}
+            {['CREDIT_NOTE', 'DEBIT_NOTE'].includes(voucherType) && (
+              <>
+                <div>
+                  <Input
+                    label={<span>
+                      {voucherType === 'CREDIT_NOTE' ? 'Original Sale Invoice No.' : 'Original Purchase Bill No.'}
+                      {' '}<span className="text-destructive">*</span>
+                    </span>}
+                    placeholder="Original invoice number"
+                    className="font-mono"
+                    {...form.register('refVoucherNumber')}
+                    helperText={voucherType === 'CREDIT_NOTE' ? 'Sale invoice being reversed' : 'Purchase bill being reversed'}
+                  />
+                </div>
+                <div>
+                  <Input
+                    label="Original Invoice Date"
+                    type="date"
+                    {...form.register('refVoucherDate')}
+                  />
+                </div>
               </>
             )}
 

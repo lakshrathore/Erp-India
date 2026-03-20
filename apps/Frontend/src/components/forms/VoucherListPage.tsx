@@ -7,6 +7,7 @@ import { api, extractError } from '../../lib/api'
 import { formatINR, formatDate, getFinancialYear } from '../../lib/india'
 import { Button, Badge, EmptyState, Spinner, PageHeader, Select } from '../../components/ui'
 import { useAuthStore } from '../../stores/auth.store'
+import { cn } from '../ui/utils'
 
 export type VoucherType = 'SALE' | 'PURCHASE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' | 'SALE_CHALLAN' | 'PURCHASE_ORDER' | 'PURCHASE_CHALLAN' | 'PRODUCTION' | 'RECEIPT' | 'PAYMENT' | 'CONTRA' | 'JOURNAL'
 
@@ -109,7 +110,7 @@ export default function VoucherListPage({ voucherType, title, newPath, breadcrum
     : { from: today.subtract(365, 'day').format('YYYY-MM-DD'), to: today.format('YYYY-MM-DD') }
 
   const [search, setSearch] = useState('')
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState('POSTED') // default: show only posted
   const [from, setFrom] = useState(fyDates.from)
   const [to, setTo] = useState(fyDates.to)
   const [page, setPage] = useState(1)
@@ -162,6 +163,19 @@ export default function VoucherListPage({ voucherType, title, newPath, breadcrum
               placeholder={`Search ${title.toLowerCase()}...`}
               className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
+          </div>
+          <div className="flex rounded-lg border border-border overflow-hidden text-xs font-medium">
+            {[
+              { label: 'Posted', value: 'POSTED' },
+              { label: 'All', value: '' },
+              { label: 'Draft', value: 'DRAFT' },
+            ].map(opt => (
+              <button key={opt.value}
+                onClick={() => { setStatus(opt.value); setPage(1) }}
+                className={cn('px-3 py-2 transition-colors', status === opt.value ? 'bg-primary text-white' : 'hover:bg-muted text-muted-foreground')}>
+                {opt.label}
+              </button>
+            ))}
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowFilters(s => !s)}>
             <Filter size={14} /> {showFilters ? 'Hide' : 'Filters'}

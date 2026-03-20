@@ -52,31 +52,53 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
     if (error.response?.status === 401 && !original._retry) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => { failedQueue.push({ resolve, reject }) })
-          .then(token => { original.headers.Authorization = `Bearer ${token}`; return api(original) })
-      }
-      original._retry = true
-      isRefreshing = true
-      const auth = getAuth()
-      if (!auth.refreshToken) {
+      // Already retried once — don't retry again, just logout
+      if (original._retry) {
         useAuthStore.getState().logout()
         window.location.href = '/login'
         return Promise.reject(error)
       }
+
+      // If a refresh is already in progress, queue this request
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => { failedQueue.push({ resolve, reject }) })
+          .then(token => {
+            original.headers.Authorization = `Bearer ${token}`
+            original._retry = true
+            return api(original)
+          })
+          .catch(err => Promise.reject(err))
+      }
+
+      original._retry = true
+      isRefreshing = true
+
+      const auth = getAuth()
+      if (!auth.refreshToken) {
+        isRefreshing = false
+        useAuthStore.getState().logout()
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+
       try {
         const { data } = await axios.post('/api/auth/refresh', { refreshToken: auth.refreshToken })
         const { accessToken, refreshToken } = data.data
+        // Update store AND localStorage immediately
         useAuthStore.getState().updateTokens(accessToken, refreshToken)
+        // Process all queued requests with new token
         processQueue(null, accessToken)
         original.headers.Authorization = `Bearer ${accessToken}`
         return api(original)
       } catch (e) {
         processQueue(e, null)
         useAuthStore.getState().logout()
+        localStorage.removeItem('erp-auth')
         window.location.href = '/login'
         return Promise.reject(e)
-      } finally { isRefreshing = false }
+      } finally {
+        isRefreshing = false
+      }
     }
     return Promise.reject(error)
   }

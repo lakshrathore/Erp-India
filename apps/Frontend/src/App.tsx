@@ -64,6 +64,7 @@ const DepreciationPage    = lazy(() => import('./modules/assets/FixedAssetsPage'
 const TransactionSettingsPage = lazy(() => import('./modules/settings/TransactionSettingsPage'))
 const LedgerMappingPage   = lazy(() => import('./modules/settings/LedgerMappingPage'))
 const PrintSetupPage      = lazy(() => import('./modules/settings/PrintSetupPage'))
+const DataManagementPage  = lazy(() => import('./modules/settings/DataManagementPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
@@ -171,8 +172,8 @@ export default function App() {
               {/* GST */}
               <Route path="gst/gstr1"  element={<GSTR1Page />} />
               <Route path="gst/gstr3b" element={<GSTR3BPage />} />
-              <Route path="gst/recon"  element={<GSTR2BPage />} />
-              <Route path="gst/tds"    element={<TDSTCSPage />} />
+              <Route path="gst/gstr2b"  element={<GSTR2BPage />} />
+              <Route path="gst/tds-tcs"    element={<TDSTCSPage />} />
 
               {/* Reports */}
               <Route path="reports/balance-sheet"      element={<LF n="BalanceSheetPage" />} />
@@ -180,8 +181,10 @@ export default function App() {
               <Route path="reports/trial-balance"      element={<LF n="TrialBalancePage" />} />
               <Route path="reports/outstanding"        element={<LS n="OutstandingPage" />} />
               <Route path="reports/overdue"            element={<OverduePage />} />
+              <Route path="reports/sale-purchase"        element={<SaleReport />} />
               <Route path="reports/sale"               element={<SaleReport />} />
               <Route path="reports/purchase"           element={<PurchaseReport />} />
+              <Route path="reports/register"           element={<LR n="SaleRegisterPage" />} />
               <Route path="reports/sale-register"      element={<LR n="SaleRegisterPage" />} />
               <Route path="reports/purchase-register"  element={<LR n="PurchaseRegisterPage" />} />
               <Route path="reports/journal-register"   element={<LR n="JournalRegisterPage" />} />
@@ -198,7 +201,7 @@ export default function App() {
               <Route path="payroll/attendance"          element={<AttendancePage />} />
               <Route path="payroll/leave"               element={<LeavePage />} />
               <Route path="payroll/process"             element={<ProcessPayroll />} />
-              <Route path="payroll/payslips"            element={<PayslipsPage />} />
+              <Route path="payroll/payslip"            element={<PayslipsPage />} />
               <Route path="payroll/compliance"          element={<CompliancePage />} />
               <Route path="payroll/form16"              element={<Form16Page />} />
 
@@ -209,6 +212,7 @@ export default function App() {
               <Route path="settings/financial-years"   element={<LST n="FinancialYearsPage" />} />
               <Route path="settings/number-series"     element={<NumberSeriesPage />} />
               <Route path="settings/print-setup"      element={<PrintSetupPage />} />
+              <Route path="settings/data-management"  element={<DataManagementPage />} />
               <Route path="settings/transaction"       element={<TransactionSettingsPage />} />
               <Route path="settings/ledger-mapping"     element={<LedgerMappingPage />} />
               <Route path="settings/tally"             element={<TallyPage />} />
