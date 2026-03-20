@@ -5,7 +5,7 @@ import {
   FileText, Users, Settings, ChevronDown, ChevronRight,
   Building2, BarChart3, CreditCard, Receipt, Wallet,
   ClipboardList, UserCheck, Menu, LogOut, Bell,
-  Building, ChevronLeft, TrendingUp, User, RefreshCcw,
+  Building, ChevronLeft, TrendingUp, User, RefreshCcw, Printer,
 } from 'lucide-react'
 import { cn } from '../ui/utils'
 import { useAuthStore } from '../../stores/auth.store'
@@ -24,6 +24,7 @@ const NAV: NavItem[] = [
   {
     label: 'Billing', icon: ShoppingCart,
     children: [
+      { label: '⚡ POS — Point of Sale', icon: ShoppingCart, href: '/pos' },
       { label: 'Sale Invoice', icon: FileText, href: '/billing/sale' },
       { label: 'Purchase Invoice', icon: FileText, href: '/billing/purchase' },
       { label: 'Credit Note', icon: FileText, href: '/billing/credit-note' },
@@ -113,6 +114,9 @@ const NAV: NavItem[] = [
       { label: 'Users & Access', icon: Users, href: '/settings/users' },
       { label: 'Financial Years', icon: ClipboardList, href: '/settings/financial-years' },
       { label: 'Number Series', icon: Settings, href: '/settings/number-series' },
+      { label: 'Transaction Settings', icon: Settings, href: '/settings/transaction' },
+      { label: 'Ledger Mapping', icon: BookOpen, href: '/settings/ledger-mapping' },
+      { label: 'Print Setup', icon: Printer, href: '/settings/print-setup' },
       { label: 'Tally Import/Export', icon: FileText, href: '/settings/tally' },
     ],
   },

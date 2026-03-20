@@ -21,12 +21,13 @@ export default function DashboardPage() {
   const today = dayjs()
 
   const { data: todayVouchers = [] } = useQuery({
-    queryKey: ['dash-today'],
+    queryKey: ['dash-today', activeCompany?.companyId],
     queryFn: async () => {
       const d = today.format('YYYY-MM-DD')
       const { data } = await api.get('/billing/vouchers', { params: { from: d, to: d, limit: 100, status: 'POSTED' } })
       return data.data || []
     },
+    enabled: !!activeCompany?.companyId,
     refetchInterval: 60_000,
   })
 
@@ -42,6 +43,7 @@ export default function DashboardPage() {
       return { sales: s.data.data || [], purchases: p.data.data || [] }
     },
     refetchInterval: 5 * 60_000,
+    enabled: !!activeCompany?.companyId,
   })
 
   const { data: outstanding } = useQuery({
@@ -54,6 +56,7 @@ export default function DashboardPage() {
       return { receivable: r.data.data?.totalOutstanding || 0, payable: p.data.data?.totalOutstanding || 0 }
     },
     refetchInterval: 5 * 60_000,
+    enabled: !!activeCompany?.companyId,
   })
 
   const { data: empCount = 0 } = useQuery({
@@ -63,6 +66,7 @@ export default function DashboardPage() {
       return data.pagination?.total || 0
     },
     staleTime: 30 * 60_000,
+    enabled: !!activeCompany?.companyId,
   })
 
   const { data: lowStockCount = 0 } = useQuery({
@@ -72,6 +76,7 @@ export default function DashboardPage() {
       return (data.data || []).filter((s: any) => Number(s.reorderLevel) > 0 && Number(s.totalQty) <= Number(s.reorderLevel)).length
     },
     staleTime: 15 * 60_000,
+    enabled: !!activeCompany?.companyId,
   })
 
   const { data: trendData = [] } = useQuery({
@@ -95,6 +100,7 @@ export default function DashboardPage() {
       return results
     },
     staleTime: 10 * 60_000,
+    enabled: !!activeCompany?.companyId,
   })
 
   const todaySale = (todayVouchers as any[]).filter((v: any) => v.voucherType === 'SALE').reduce((s: number, v: any) => s + Number(v.grandTotal), 0)

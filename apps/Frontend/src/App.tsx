@@ -57,6 +57,10 @@ const PurchaseReport     = lazy(() => import('./modules/reports/SalePurchaseRepo
 const TallyPage          = lazy(() => import('./modules/settings/TallyPage'))
 const CompanySettingsPage = lazy(() => import('./modules/settings/CompanySettingsPage').then(m => ({ default: m.CompanySettingsPage })))
 const NumberSeriesPage    = lazy(() => import('./modules/settings/NumberSeriesPage'))
+const POSPage             = lazy(() => import('./modules/billing/POSPage'))
+const TransactionSettingsPage = lazy(() => import('./modules/settings/TransactionSettingsPage'))
+const LedgerMappingPage   = lazy(() => import('./modules/settings/LedgerMappingPage'))
+const PrintSetupPage      = lazy(() => import('./modules/settings/PrintSetupPage'))
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
@@ -89,6 +93,7 @@ export default function App() {
             <Route path="/" element={<AppLayout />}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
+              <Route path="pos"       element={<POSPage />} />
               <Route path="profile"   element={<UserProfile />} />
 
               {/* Masters */}
@@ -196,6 +201,9 @@ export default function App() {
               <Route path="settings/users"             element={<LST n="CompanyUsersPage" />} />
               <Route path="settings/financial-years"   element={<LST n="FinancialYearsPage" />} />
               <Route path="settings/number-series"     element={<NumberSeriesPage />} />
+              <Route path="settings/print-setup"      element={<PrintSetupPage />} />
+              <Route path="settings/transaction"       element={<TransactionSettingsPage />} />
+              <Route path="settings/ledger-mapping"     element={<LedgerMappingPage />} />
               <Route path="settings/tally"             element={<TallyPage />} />
             </Route>
 

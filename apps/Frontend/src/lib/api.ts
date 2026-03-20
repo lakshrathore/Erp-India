@@ -8,54 +8,81 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// ─── Read from Zustand persisted store (erp-auth) ────────────────────────────
+// ─── Get auth from Zustand store (live in-memory, not localStorage) ──────────
+// We import lazily to avoid circular dependency
 
-function getZustandAuth() {
+function getAuth() {
   try {
-    const raw = localStorage.getItem('erp-auth')
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    const state = parsed?.state
+    // Dynamic import of store to get live state (not persisted localStorage copy)
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAuthStore } = require('../stores/auth.store')
+    const state = useAuthStore.getState()
     return {
       accessToken: state?.accessToken || null,
       refreshToken: state?.refreshToken || null,
       companyId: state?.activeCompany?.companyId || null,
     }
   } catch {
-    return null
+    // Fallback to localStorage if store not ready
+    try {
+      const raw = localStorage.getItem('erp-auth')
+      if (!raw) return null
+      const parsed = JSON.parse(raw)
+      const state = parsed?.state
+      return {
+        accessToken: state?.accessToken || null,
+        refreshToken: state?.refreshToken || null,
+        companyId: state?.activeCompany?.companyId || null,
+      }
+    } catch {
+      return null
+    }
   }
 }
 
-function updateZustandTokens(accessToken: string, refreshToken: string) {
+function updateTokens(accessToken: string, refreshToken: string) {
   try {
-    const raw = localStorage.getItem('erp-auth')
-    if (!raw) return
-    const parsed = JSON.parse(raw)
-    parsed.state.accessToken = accessToken
-    parsed.state.refreshToken = refreshToken
-    localStorage.setItem('erp-auth', JSON.stringify(parsed))
-  } catch { /* ignore */ }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAuthStore } = require('../stores/auth.store')
+    useAuthStore.getState().updateTokens(accessToken, refreshToken)
+  } catch {
+    // Fallback: update localStorage directly
+    try {
+      const raw = localStorage.getItem('erp-auth')
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      parsed.state.accessToken = accessToken
+      parsed.state.refreshToken = refreshToken
+      localStorage.setItem('erp-auth', JSON.stringify(parsed))
+    } catch { /* ignore */ }
+  }
 }
 
-function clearZustandAuth() {
+function clearAuth() {
   try {
-    const raw = localStorage.getItem('erp-auth')
-    if (!raw) return
-    const parsed = JSON.parse(raw)
-    parsed.state.accessToken = null
-    parsed.state.refreshToken = null
-    parsed.state.user = null
-    parsed.state.companies = []
-    parsed.state.activeCompany = null
-    parsed.state.activeFY = null
-    localStorage.setItem('erp-auth', JSON.stringify(parsed))
-  } catch { /* ignore */ }
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAuthStore } = require('../stores/auth.store')
+    useAuthStore.getState().logout()
+  } catch {
+    try {
+      const raw = localStorage.getItem('erp-auth')
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      parsed.state.accessToken = null
+      parsed.state.refreshToken = null
+      parsed.state.user = null
+      parsed.state.companies = []
+      parsed.state.activeCompany = null
+      parsed.state.activeFY = null
+      localStorage.setItem('erp-auth', JSON.stringify(parsed))
+    } catch { /* ignore */ }
+  }
 }
 
 // ─── Request Interceptor ──────────────────────────────────────────────────────
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const auth = getZustandAuth()
+  const auth = getAuth()
   if (auth?.accessToken) {
     config.headers.Authorization = `Bearer ${auth.accessToken}`
   }
@@ -93,9 +120,9 @@ api.interceptors.response.use(
       original._retry = true
       isRefreshing = true
 
-      const auth = getZustandAuth()
+      const auth = getAuth()
       if (!auth?.refreshToken) {
-        clearZustandAuth()
+        clearAuth()
         window.location.href = '/login'
         return Promise.reject(error)
       }
@@ -105,13 +132,13 @@ api.interceptors.response.use(
           refreshToken: auth.refreshToken,
         })
         const { accessToken, refreshToken } = data.data
-        updateZustandTokens(accessToken, refreshToken)
+        updateTokens(accessToken, refreshToken)
         processQueue(null, accessToken)
         original.headers.Authorization = `Bearer ${accessToken}`
         return api(original)
       } catch (refreshError) {
         processQueue(refreshError, null)
-        clearZustandAuth()
+        clearAuth()
         window.location.href = '/login'
         return Promise.reject(refreshError)
       } finally {
@@ -156,10 +183,15 @@ export interface Session {
 }
 
 export function getSession(): Session | null {
-  const auth = getZustandAuth()
+  const auth = getAuth()
   if (!auth?.accessToken) return null
-  return { accessToken: auth.accessToken, refreshToken: auth.refreshToken || '', companyId: auth.companyId || undefined, userId: '', userName: '', userEmail: '', isSuperAdmin: false }
+  return {
+    accessToken: auth.accessToken,
+    refreshToken: auth.refreshToken || '',
+    companyId: auth.companyId || undefined,
+    userId: '', userName: '', userEmail: '', isSuperAdmin: false,
+  }
 }
 export function setSession(_s: Session) { /* no-op */ }
-export function clearSession() { clearZustandAuth() }
+export function clearSession() { clearAuth() }
 export function setActiveCompany(_id: string) { /* no-op */ }

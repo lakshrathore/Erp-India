@@ -206,6 +206,9 @@ model Company {
   roundOffSales     Boolean  @default(true)
   printLogoOnInvoice      Boolean @default(true)
   printSignatureOnInvoice Boolean @default(true)
+  printConfig             String?  // JSON string of PrintConfig
+  txnSettings             String?  // JSON string of TransactionSettings
+  ledgerMappings          String?  // JSON string of ledger ID mappings
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -556,6 +559,14 @@ model Item {
   purchaseRate Decimal @default(0) @db.Decimal(15, 4)
   saleRate     Decimal @default(0) @db.Decimal(15, 4)
   mrp          Decimal @default(0) @db.Decimal(15, 2)
+  ptr          Decimal @default(0) @db.Decimal(15, 4)  // Price to Retailer
+  pts          Decimal @default(0) @db.Decimal(15, 4)  // Price to Stockist
+  wholesaleRate Decimal @default(0) @db.Decimal(15, 4) // Wholesale rate
+  
+  // Multi-level discount
+  tradeDiscount   Decimal @default(0) @db.Decimal(5, 2)  // % discount always applied
+  cashDiscount    Decimal @default(0) @db.Decimal(5, 2)  // % cash/prompt payment disc
+  schemeDiscount  Decimal @default(0) @db.Decimal(5, 2)  // % scheme/seasonal disc
 
   // Inventory control
   maintainStock    Boolean @default(true)
@@ -656,7 +667,9 @@ model Voucher {
   isReverseCharge Boolean       @default(false)
   isExport        Boolean       @default(false)
   exportType      String?       // WITH_PAYMENT, WITHOUT_PAYMENT
+  saleType        String?       // REGULAR, EXPORT_WITH_LUT, EXPORT_WITHOUT_LUT, SEZ_WITH_PAYMENT, SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT, B2B, B2C
   lut             String?       // LUT number for exports
+  lutDate         DateTime?     @db.Date
   eInvoiceIRN     String?
   eInvoiceAckNo   String?
   eWayBillNo      String?
@@ -719,8 +732,12 @@ model VoucherItem {
   qty             Decimal  @db.Decimal(15, 3)
   freeQty         Decimal  @default(0) @db.Decimal(15, 3)
   rate            Decimal  @db.Decimal(15, 4)
-  discountPct     Decimal  @default(0) @db.Decimal(5, 2)
-  discountAmt     Decimal  @default(0) @db.Decimal(15, 2)
+  discountPct     Decimal  @default(0) @db.Decimal(5, 2)   // Discount 1 %
+  discountAmt     Decimal  @default(0) @db.Decimal(15, 2)  // Discount 1 amount
+  discount2Pct    Decimal  @default(0) @db.Decimal(5, 2)   // Discount 2 % (scheme/cash)
+  discount2Amt    Decimal  @default(0) @db.Decimal(15, 2)
+  discount3Pct    Decimal  @default(0) @db.Decimal(5, 2)   // Discount 3 %
+  discount3Amt    Decimal  @default(0) @db.Decimal(15, 2)
   taxableAmount   Decimal  @db.Decimal(15, 2)
   gstRate         Decimal  @db.Decimal(5, 2)
   taxType         TaxType  @default(CGST_SGST)

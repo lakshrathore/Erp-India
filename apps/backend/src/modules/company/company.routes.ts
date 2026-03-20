@@ -68,6 +68,9 @@ const companySchema = z.object({
   roundOffSales: z.boolean().default(true),
   printLogoOnInvoice: z.boolean().default(true),
   printSignatureOnInvoice: z.boolean().default(true),
+  printConfig: z.string().optional(),
+  txnSettings: z.string().optional(),
+  ledgerMappings: z.string().optional(),
 })
 
 const addressSchema = z.object({

@@ -22,6 +22,8 @@ const voucherItemSchema = z.object({
   freeQty: z.coerce.number().default(0),
   rate: z.coerce.number().min(0),
   discountPct: z.coerce.number().min(0).max(100).default(0),
+  discount2Pct: z.coerce.number().min(0).max(100).default(0),
+  discount3Pct: z.coerce.number().min(0).max(100).default(0),
   gstRate: z.coerce.number().min(0).max(100),
   taxType: z.nativeEnum(TaxType).default('CGST_SGST'),
   batchNo: z.string().optional().nullable(),
@@ -46,6 +48,9 @@ const voucherSchema = z.object({
   placeOfSupply: z.string().optional(),
   isReverseCharge: z.boolean().default(false),
   isExport: z.boolean().default(false),
+  saleType: z.string().optional().nullable(),
+  lut: z.string().optional().nullable(),
+  lutDate: z.string().optional().nullable(),
   refVoucherType: z.nativeEnum(VoucherType).optional().nullable(),
   refVoucherNumber: z.string().optional().nullable(),
   refVoucherDate: z.string().optional().nullable(),
@@ -175,8 +180,13 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
     for (let i = 0; i < data.items.length; i++) {
       const item = data.items[i]
       const gross = item.qty * item.rate
-      const disc = (gross * item.discountPct) / 100
-      const taxable = gross - disc
+      // Multi-level cascading discount: D1 on gross, D2 on (gross-D1), D3 on result
+      const d1 = (item.discountPct || 0) / 100
+      const d2 = (item.discount2Pct || 0) / 100
+      const d3 = (item.discount3Pct || 0) / 100
+      const netRate = item.rate * (1 - d1) * (1 - d2) * (1 - d3)
+      const taxable = netRate * item.qty
+      const disc = gross - taxable  // total discount in amount
 
       const gst = calculateGST(taxable, item.gstRate, item.taxType as any)
 
@@ -197,8 +207,12 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
         qty: item.qty,
         freeQty: item.freeQty,
         rate: item.rate,
-        discountPct: item.discountPct,
+        discountPct: item.discountPct || 0,
         discountAmt: disc,
+        discount2Pct: item.discount2Pct || 0,
+        discount2Amt: item.rate * item.qty * (1 - d1) * d2,
+        discount3Pct: item.discount3Pct || 0,
+        discount3Amt: item.rate * item.qty * (1 - d1) * (1 - d2) * d3,
         taxableAmount: taxable,
         gstRate: item.gstRate,
         taxType: item.taxType,
@@ -236,6 +250,9 @@ billingRouter.post('/vouchers', async (req: Request, res: Response) => {
         placeOfSupply: data.placeOfSupply,
         isReverseCharge: data.isReverseCharge,
         isExport: data.isExport,
+        saleType: data.saleType || null,
+        lut: data.lut || null,
+        lutDate: data.lutDate ? new Date(data.lutDate) : null,
         refVoucherType: data.refVoucherType || null,
         refVoucherNumber: data.refVoucherNumber || null,
         refVoucherDate: data.refVoucherDate ? new Date(data.refVoucherDate) : null,
