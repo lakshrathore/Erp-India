@@ -414,8 +414,8 @@ function DeleteCategoryButton({ cat, onDeleted }: { cat: Category; onDeleted: ()
 
   return (
     <button onClick={() => setConfirm(true)} title="Delete category"
-      className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-      <Trash2 size={13} />
+      className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+      <Trash2 size={14} />
     </button>
   )
 }
@@ -456,7 +456,7 @@ function CategoryCard({
   return (
     <div className={cn('border rounded-xl overflow-hidden mb-2', levelStyle.border)}>
       {/* Header row */}
-      <div className={cn('flex items-center gap-2 px-3 py-2.5', levelStyle.bg)}>
+      <div className={cn('flex items-center gap-2 px-3 py-2.5 min-w-0', levelStyle.bg)}>
         {/* Expand toggle */}
         <button
           onClick={() => setExpanded(e => !e)}
@@ -468,50 +468,51 @@ function CategoryCard({
         </button>
 
         {/* Folder icon */}
-        {hasChildren
-          ? <FolderOpen size={15} className={levelStyle.text} />
-          : <Folder size={15} className={levelStyle.text} />}
+        <span className="flex-shrink-0">
+          {hasChildren
+            ? <FolderOpen size={15} className={levelStyle.text} />
+            : <Folder size={15} className={levelStyle.text} />}
+        </span>
 
         {/* Name */}
-        <span className={cn('font-medium text-sm flex-1', levelStyle.text)}>{cat.name}</span>
+        <span className={cn('font-medium text-sm flex-1 truncate min-w-0', levelStyle.text)}>{cat.name}</span>
 
-        {/* Attributes summary */}
+        {/* Attributes summary — truncated */}
         {attrs.length > 0 && (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <Tag size={11} className="text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground">
+          <div className="hidden md:flex items-center gap-1 flex-shrink min-w-0 max-w-[200px]">
+            <Tag size={11} className="text-muted-foreground flex-shrink-0" />
+            <span className="text-[10px] text-muted-foreground truncate">
               {attrs.map(a => a.label).join(', ')}
             </span>
           </div>
-        )}
-
-        {/* Counts */}
-        {cat._count.items > 0 && (
-          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
-            <Package size={9} className="mr-0.5" />{cat._count.items} items
-          </Badge>
         )}
 
         {/* Batch/expiry badges */}
         {cat.trackBatch && <Badge variant="outline" className="text-[9px] flex-shrink-0">Batch</Badge>}
         {cat.trackExpiry && <Badge variant="outline" className="text-[9px] flex-shrink-0">Expiry</Badge>}
 
-        {/* Actions */}
-        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ opacity: 1 }}>
+        {/* Item count */}
+        {cat._count.items > 0 && (
+          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+            <Package size={9} className="mr-0.5" />{cat._count.items}
+          </Badge>
+        )}
+
+        {/* Actions — always visible, right-aligned */}
+        <div className="flex items-center gap-0.5 flex-shrink-0 ml-1">
           {canAddChild && (
             <button
               onClick={() => setAddingChild(a => !a)}
               title={`Add L${cat.level + 1} sub-category`}
-              className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
-              <Plus size={13} />
+              className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+              <Plus size={14} />
             </button>
           )}
           <button
             onClick={() => setEditing(true)}
             title="Edit category"
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-            <Edit size={13} />
+            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <Edit size={14} />
           </button>
           <DeleteCategoryButton cat={cat} onDeleted={onEditDone} />
         </div>
