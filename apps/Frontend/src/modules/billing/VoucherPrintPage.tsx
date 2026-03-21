@@ -37,7 +37,7 @@ export default function VoucherPrintPage() {
       const { data } = await api.get(`/companies/${companyId}`)
       return data.data
     },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    staleTime: 30_000,
   })
 
   if (isLoading) return <div className="flex items-center justify-center min-h-screen text-sm">Loading...</div>

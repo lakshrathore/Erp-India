@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, extractError } from '../../lib/api'
 import { Button, Badge, PageHeader, Spinner, Select, EmptyState } from '../../components/ui'
@@ -30,6 +30,12 @@ export default function AttendancePage() {
   const [grid, setGrid] = useState<Record<string, Record<number, AttStatus>>>({})
   const [initialized, setInitialized] = useState(false)
 
+  // Reset grid when month/year changes
+  useEffect(() => {
+    setGrid({})
+    setInitialized(false)
+  }, [month, year])
+
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const daysInMonth = dayjs(`${year}-${month}-01`).daysInMonth()
   const daysArr = Array.from({ length: daysInMonth }, (_, i) => i + 1)
@@ -38,27 +44,27 @@ export default function AttendancePage() {
   const { data: empData, isLoading: empLoading } = useQuery({
     queryKey: ['employees', 'ACTIVE'],
     queryFn: async () => { const { data } = await api.get('/payroll/employees', { params: { status: 'ACTIVE', limit: 200 } }); return data.data },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
-  })
+      })
   const employees: any[] = empData || []
 
   // Get existing attendance
   const { data: attData, isLoading: attLoading } = useQuery({
     queryKey: ['attendance', month, year],
     queryFn: async () => { const { data } = await api.get('/payroll/attendance', { params: { month, year } }); return data.data },
-    onSuccess: (records: any[]) => {
-      if (!initialized) {
-        const newGrid: Record<string, Record<number, AttStatus>> = {}
-        for (const rec of records) {
-          if (!newGrid[rec.employeeId]) newGrid[rec.employeeId] = {}
-          newGrid[rec.employeeId][dayjs(rec.date).date()] = rec.status
-        }
-        setGrid(newGrid)
-        setInitialized(true)
+  })
+
+  // Initialize grid when data loads (RQ v5: use useEffect instead of onSuccess)
+  useEffect(() => {
+    if (attData && !initialized) {
+      const newGrid: Record<string, Record<number, AttStatus>> = {}
+      for (const rec of (attData as any[])) {
+        if (!newGrid[rec.employeeId]) newGrid[rec.employeeId] = {}
+        newGrid[rec.employeeId][dayjs(rec.date).date()] = rec.status
       }
-    },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
-  } as any)
+      setGrid(newGrid)
+      setInitialized(true)
+    }
+  }, [attData, initialized])
 
   const getStatus = (empId: string, day: number): AttStatus => {
     const status = grid[empId]?.[day]

@@ -17,13 +17,13 @@ export default function PayrollCompliancePage() {
   const { data: pfData, isLoading: pfLoading } = useQuery({
     queryKey: ['pf-ecr', month, year],
     queryFn: async () => { const { data } = await api.get(`/payroll/pf-ecr/${month}/${year}`); return data.data },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    staleTime: 30_000,
   })
 
   const { data: paysheet } = useQuery({
     queryKey: ['paysheet-compliance', month, year],
     queryFn: async () => { const { data } = await api.get(`/payroll/paysheet/${month}/${year}`); return data.data },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    staleTime: 30_000,
   })
 
   const handleDownloadECR = () => {

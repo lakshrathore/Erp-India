@@ -14,7 +14,7 @@ export default function GodownsPage() {
   const { data: godowns = [], isLoading } = useQuery({
     queryKey: ['godowns'],
     queryFn: async () => { const { data } = await api.get('/masters/godowns'); return data.data },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    staleTime: 30_000,
   })
 
   const createMutation = useMutation({

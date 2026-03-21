@@ -16,7 +16,7 @@ export default function Form16Page() {
       const { data } = await api.get('/payroll/employees', { params: { status: 'ACTIVE', limit: 200 } })
       return data.data
     },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    staleTime: 30_000,
   })
 
   // Get all 12 months salary for this employee + FY

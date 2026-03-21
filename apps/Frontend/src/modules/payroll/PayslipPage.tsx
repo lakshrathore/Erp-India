@@ -56,13 +56,18 @@ export default function PayslipsPage() {
       ) : !data ? (
         <EmptyState title="No payslip found" description="Payroll not processed for this month. Run payroll first." />
       ) : (
-        <PayslipDocument salary={data.salary} employee={data.employee} month={month} year={year} />
+        <PayslipDocumentWrapped salary={data.salary} employee={data.employee} month={month} year={year} />
       )}
     </div>
   )
 }
 
-function PayslipDocument({ salary, employee, month, year }: { salary: any; employee: any; month: number; year: number }) {
+function PayslipDocumentWrapped({ salary, employee, month, year }: { salary: any; employee: any; month: number; year: number }) {
+  const { activeCompany } = useAuthStore()
+  return <PayslipDocument salary={salary} employee={employee} month={month} year={year} companyName={activeCompany?.companyName || ''} />
+}
+
+function PayslipDocument({ salary, employee, month, year, companyName }: { salary: any; employee: any; month: number; year: number; companyName?: string }) {
   const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
   const earnings = salary.earnings as { name: string; amount: number }[]
   const deductions = salary.deductions as { name: string; amount: number }[]
@@ -77,8 +82,8 @@ function PayslipDocument({ salary, employee, month, year }: { salary: any; emplo
             <p className="text-primary-foreground/70 text-sm">{MONTHS[month - 1]} {year}</p>
           </div>
           <div className="text-right text-sm">
-            <p className="font-semibold">[Company Name]</p>
-            <p className="text-primary-foreground/70 text-xs">GSTIN: [GSTIN]</p>
+            <p className="font-semibold">{companyName || "Your Company"}</p>
+            
           </div>
         </div>
       </div>

@@ -1,13 +1,12 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Plus, Trash2, Tag, Edit, ChevronRight, ChevronDown,
-  Package, Info, GripVertical, FolderOpen, Folder,
-  FolderTree, X, Check, Layers, Settings2,
+  Plus, Edit, ChevronRight, ChevronDown, Tag,
+  Folder, FolderOpen, Package, X, Check, Info,
+  Settings2, Layers, GripVertical, Trash2
 } from 'lucide-react'
 import { api, extractError } from '../../lib/api'
 import { Button, Input, Badge, PageHeader, Spinner } from '../../components/ui'
-import { SafeDeleteButton } from '../../components/ui/SafeDeleteButton'
 import { cn } from '../../components/ui/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -26,10 +25,8 @@ interface Category {
   name: string
   parentId: string | null
   level: number
-  sortOrder: number
-  color: string | null
-  icon: string | null
   description: string | null
+  color: string | null
   attributes: Attribute[]
   trackBatch: boolean
   trackExpiry: boolean
@@ -37,480 +34,511 @@ interface Category {
   _count: { items: number; children: number }
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const ATTR_TYPES = [
   { value: 'text', label: 'Text' },
+  { value: 'select', label: 'Dropdown' },
   { value: 'number', label: 'Number' },
   { value: 'date', label: 'Date' },
-  { value: 'select', label: 'Dropdown' },
   { value: 'boolean', label: 'Yes/No' },
 ]
 
-const LEVEL_COLORS = [
-  { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', dot: 'bg-blue-500' },
-  { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', dot: 'bg-purple-500' },
-  { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+const LEVEL_STYLE = [
+  { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-700', label: 'L1 — Main Category' },
+  { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-800', badge: 'bg-purple-100 text-purple-700', label: 'L2 — Sub Category' },
+  { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', badge: 'bg-emerald-100 text-emerald-700', label: 'L3 — Sub-Sub Category' },
 ]
 
-const PRESET_TEMPLATES: Array<{
-  name: string
-  description: string
-  levels: Array<{
-    name: string
-    examples: string[]
-  }>
-  leafAttributes: Attribute[]
-  trackBatch?: boolean
-  trackExpiry?: boolean
-}> = [
-  {
-    name: 'Retail / Garments',
-    description: '3 levels: Type → Brand → Style',
-    levels: [
-      { name: 'Type', examples: ['Men\'s Wear', 'Women\'s Wear', 'Kids'] },
-      { name: 'Brand', examples: ['Arrow', 'Raymond', 'Mufti'] },
-      { name: 'Style', examples: ['Formal Shirts', 'Casual T-Shirts'] },
-    ],
-    leafAttributes: [
-      { name: 'color', label: 'Color', type: 'text', required: false, showInReport: true },
-      { name: 'size', label: 'Size', type: 'select', options: ['XS','S','M','L','XL','XXL','XXXL'], required: true, showInReport: true },
-      { name: 'fabric', label: 'Fabric', type: 'text', required: false, showInReport: false },
-    ],
-  },
-  {
-    name: 'Pharmaceuticals',
-    description: '2 levels: Therapeutic Class → Drug Type',
-    levels: [
-      { name: 'Therapeutic Class', examples: ['Antibiotics', 'Analgesics', 'Vitamins'] },
-      { name: 'Drug Type', examples: ['Tablets', 'Syrups', 'Injections'] },
-    ],
-    leafAttributes: [
-      { name: 'batch_no', label: 'Batch No', type: 'text', required: true, showInReport: true },
-      { name: 'mfg_date', label: 'Mfg Date', type: 'date', required: true, showInReport: true },
-      { name: 'exp_date', label: 'Exp Date', type: 'date', required: true, showInReport: true },
-    ],
-    trackBatch: true,
-    trackExpiry: true,
-  },
-  {
-    name: 'Electronics',
-    description: '2 levels: Category → Sub-Category',
-    levels: [
-      { name: 'Category', examples: ['Mobile Phones', 'Laptops', 'Accessories'] },
-      { name: 'Sub-Category', examples: ['Android', 'iPhone', 'Chargers'] },
-    ],
-    leafAttributes: [
-      { name: 'brand', label: 'Brand', type: 'text', required: false, showInReport: true },
-      { name: 'model_no', label: 'Model No', type: 'text', required: false, showInReport: true },
-      { name: 'serial_no', label: 'Serial No', type: 'text', required: false, showInReport: false },
-      { name: 'warranty_months', label: 'Warranty (months)', type: 'number', required: false, showInReport: false },
-    ],
-  },
-  {
-    name: 'FMCG / Grocery',
-    description: '2 levels: Department → Category',
-    levels: [
-      { name: 'Department', examples: ['Beverages', 'Personal Care', 'Dairy'] },
-      { name: 'Category', examples: ['Cold Drinks', 'Juices', 'Shampoo'] },
-    ],
-    leafAttributes: [
-      { name: 'batch_no', label: 'Batch No', type: 'text', required: true, showInReport: true },
-      { name: 'exp_date', label: 'Expiry Date', type: 'date', required: true, showInReport: true },
-    ],
-    trackBatch: true,
-    trackExpiry: true,
-  },
-  {
-    name: 'Jewellery',
-    description: '2 levels: Metal Type → Jewellery Type',
-    levels: [
-      { name: 'Metal', examples: ['Gold', 'Silver', 'Diamond'] },
-      { name: 'Jewellery Type', examples: ['Rings', 'Necklaces', 'Earrings'] },
-    ],
-    leafAttributes: [
-      { name: 'purity', label: 'Purity (e.g. 22K)', type: 'text', required: true, showInReport: true },
-      { name: 'weight_gm', label: 'Weight (gm)', type: 'number', required: true, showInReport: true },
-      { name: 'hallmark', label: 'Hallmark No', type: 'text', required: false, showInReport: false },
-    ],
-  },
-  {
-    name: 'Simple (1 level)',
-    description: 'Just flat categories, no sub-levels',
-    levels: [
-      { name: 'Category', examples: ['Stationery', 'Hardware', 'Spare Parts'] },
-    ],
-    leafAttributes: [],
-  },
-]
+const BLANK_ATTR: Attribute = {
+  name: '', label: '', type: 'text', required: false, showInReport: true
+}
 
 // ─── Attribute Row ────────────────────────────────────────────────────────────
 
-function AttrRow({ attr, index, onChange, onDelete }: {
+function AttrRow({ attr, onChange, onDelete }: {
   attr: Attribute
-  index: number
-  onChange: (i: number, a: Attribute) => void
-  onDelete: (i: number) => void
+  onChange: (a: Attribute) => void
+  onDelete: () => void
 }) {
-  const [optInput, setOptInput] = useState(attr.options?.join(', ') || '')
+  const [optInput, setOptInput] = useState('')
 
   return (
-    <div className="grid grid-cols-12 gap-1.5 items-start py-2 border-b border-border/30 last:border-0">
-      <div className="col-span-1 flex items-center pt-2">
-        <GripVertical size={13} className="text-muted-foreground cursor-grab" />
-        <span className="text-xs text-muted-foreground ml-0.5">{index + 1}</span>
-      </div>
-      {/* Field key */}
+    <div className="grid grid-cols-12 gap-2 px-3 py-2 items-start border-t border-border/30 bg-card">
+      <div className="col-span-1 mt-2 text-muted-foreground"><GripVertical size={13} /></div>
+
+      {/* Field name (slug) */}
       <div className="col-span-2">
         <input
           value={attr.name}
-          onChange={e => onChange(index, { ...attr, name: e.target.value.toLowerCase().replace(/\s+/g, '_') })}
-          placeholder="field_key"
+          placeholder="field_name"
+          onChange={e => onChange({ ...attr, name: e.target.value.replace(/\s+/g, '_').toLowerCase() })}
           className="h-7 w-full rounded border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
-      {/* Label */}
-      <div className="col-span-3">
+
+      {/* Display label */}
+      <div className="col-span-2">
         <input
           value={attr.label}
-          onChange={e => onChange(index, { ...attr, label: e.target.value })}
           placeholder="Display Label"
+          onChange={e => onChange({ ...attr, label: e.target.value })}
           className="h-7 w-full rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
+
       {/* Type */}
       <div className="col-span-2">
         <select
           value={attr.type}
-          onChange={e => onChange(index, { ...attr, type: e.target.value as Attribute['type'] })}
+          onChange={e => onChange({ ...attr, type: e.target.value as any, options: undefined })}
           className="h-7 w-full rounded border border-input bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
         >
           {ATTR_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
       </div>
-      {/* Options */}
-      <div className="col-span-2">
+
+      {/* Options (only for select type) */}
+      <div className="col-span-3">
         {attr.type === 'select' ? (
-          <input
-            value={optInput}
-            onChange={e => {
-              setOptInput(e.target.value)
-              onChange(index, { ...attr, options: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })
-            }}
-            placeholder="A, B, C"
-            className="h-7 w-full rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
-          />
-        ) : <span className="text-xs text-muted-foreground px-1">—</span>}
-      </div>
-      {/* Required + Report toggles */}
-      <div className="col-span-1 flex flex-col gap-1 items-center pt-1">
-        <button
-          type="button"
-          onClick={() => onChange(index, { ...attr, required: !attr.required })}
-          title={attr.required ? 'Required: ON' : 'Required: OFF'}
-          className={cn('w-5 h-5 rounded text-xs font-bold transition-colors',
-            attr.required ? 'bg-red-500 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80')}
-        >R</button>
-        <button
-          type="button"
-          onClick={() => onChange(index, { ...attr, showInReport: !attr.showInReport })}
-          title={attr.showInReport ? 'Show in report: ON' : 'Show in report: OFF'}
-          className={cn('w-5 h-5 rounded text-xs font-bold transition-colors',
-            attr.showInReport ? 'bg-blue-500 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80')}
-        >S</button>
-      </div>
-      {/* Delete */}
-      <div className="col-span-1 flex items-center justify-center pt-1">
-        <button type="button" onClick={() => onDelete(index)}
-          className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
-          <X size={13} />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-// ─── Category Form (Create / Edit) ───────────────────────────────────────────
-
-interface FormState {
-  name: string
-  parentId: string | null
-  description: string
-  color: string
-  attributes: Attribute[]
-  trackBatch: boolean
-  trackExpiry: boolean
-}
-
-function blankForm(parentId: string | null = null): FormState {
-  return { name: '', parentId, description: '', color: '', attributes: [], trackBatch: false, trackExpiry: false }
-}
-
-function CategoryForm({
-  initial,
-  allCats,
-  parentCategory,
-  onSave,
-  onCancel,
-  saving,
-}: {
-  initial: FormState
-  allCats: Category[]
-  parentCategory: Category | null
-  onSave: (f: FormState) => void
-  onCancel: () => void
-  saving: boolean
-}) {
-  const [form, setForm] = useState<FormState>(initial)
-
-  const set = (patch: Partial<FormState>) => setForm(f => ({ ...f, ...patch }))
-
-  const addAttr = () => set({
-    attributes: [...form.attributes, { name: '', label: '', type: 'text', required: false, showInReport: true }]
-  })
-
-  const changeAttr = (i: number, a: Attribute) => {
-    const attrs = [...form.attributes]; attrs[i] = a; set({ attributes: attrs })
-  }
-
-  const deleteAttr = (i: number) => set({ attributes: form.attributes.filter((_, idx) => idx !== i) })
-
-  // Available parents: can only place this under root (level 1) or sub (level 2) — not level 3
-  const availableParents = allCats.filter(c => c.level < 3)
-
-  const parentLevel = parentCategory?.level ?? 0
-  const newLevel = parentLevel + 1
-
-  const levelInfo = LEVEL_COLORS[newLevel - 1] || LEVEL_COLORS[0]
-
-  return (
-    <div className="space-y-4">
-      {/* Level badge */}
-      <div className={cn('flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium', levelInfo.bg, levelInfo.border, levelInfo.text)}>
-        <Layers size={14} />
-        <span>
-          {newLevel === 1 ? 'Root Category (Level 1)' :
-           newLevel === 2 ? `Sub-Category under: ${parentCategory?.name}` :
-           `Leaf Category under: ${parentCategory?.name}`}
-        </span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 md:col-span-1">
-          <label className="block text-xs font-medium mb-1">Category Name *</label>
-          <Input
-            value={form.name}
-            onChange={e => set({ name: e.target.value })}
-            placeholder="e.g. Men's Wear, Antibiotics..."
-            autoFocus
-          />
-        </div>
-        <div className="col-span-2 md:col-span-1">
-          <label className="block text-xs font-medium mb-1">Parent Category</label>
-          <select
-            value={form.parentId || ''}
-            onChange={e => set({ parentId: e.target.value || null })}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            <option value="">— None (Root Level) —</option>
-            {availableParents.map(c => (
-              <option key={c.id} value={c.id}>
-                {'  '.repeat(c.level - 1)}{c.level > 1 ? '└ ' : ''}{c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="col-span-2">
-          <label className="block text-xs font-medium mb-1">Description (optional)</label>
-          <Input
-            value={form.description}
-            onChange={e => set({ description: e.target.value })}
-            placeholder="Brief description of this category..."
-          />
-        </div>
-      </div>
-
-      {/* Tracking options */}
-      <div className="flex items-center gap-4">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={form.trackBatch} onChange={e => set({ trackBatch: e.target.checked })}
-            className="w-4 h-4 rounded border-gray-300 text-primary" />
-          <span className="text-sm">Track Batch No.</span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={form.trackExpiry} onChange={e => set({ trackExpiry: e.target.checked })}
-            className="w-4 h-4 rounded border-gray-300 text-primary" />
-          <span className="text-sm">Track Expiry Date</span>
-        </label>
-      </div>
-
-      {/* Attributes section */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <p className="text-sm font-medium">Custom Attributes</p>
-            <p className="text-xs text-muted-foreground">Fields shown on items in this category (e.g. Color, Size, Batch No)</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={addAttr} type="button">
-            <Plus size={13} className="mr-1" /> Add Field
-          </Button>
-        </div>
-
-        {form.attributes.length === 0 ? (
-          <div className="text-xs text-muted-foreground py-3 text-center border border-dashed border-border rounded-lg">
-            No attributes defined. Items in this category will have no extra fields.
-          </div>
-        ) : (
-          <div className="border border-border rounded-lg overflow-hidden">
-            {/* Header */}
-            <div className="grid grid-cols-12 gap-1.5 px-3 py-1.5 bg-muted/40 text-xs font-medium text-muted-foreground border-b border-border">
-              <div className="col-span-1">#</div>
-              <div className="col-span-2">Key</div>
-              <div className="col-span-3">Label</div>
-              <div className="col-span-2">Type</div>
-              <div className="col-span-2">Options</div>
-              <div className="col-span-1 text-center" title="R = Required, S = Show in Report">R/S</div>
-              <div className="col-span-1"></div>
-            </div>
-            <div className="px-3 divide-y divide-border/20">
-              {form.attributes.map((attr, i) => (
-                <AttrRow key={i} attr={attr} index={i} onChange={changeAttr} onDelete={deleteAttr} />
+          <div className="space-y-1">
+            <div className="flex flex-wrap gap-1">
+              {(attr.options || []).map((opt, i) => (
+                <span key={i} className="inline-flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                  {opt}
+                  <button onClick={() => onChange({ ...attr, options: attr.options?.filter((_, idx) => idx !== i) })} className="text-muted-foreground hover:text-destructive">
+                    <X size={9} />
+                  </button>
+                </span>
               ))}
             </div>
+            <div className="flex gap-1">
+              <input
+                value={optInput}
+                placeholder="Add option..."
+                onChange={e => setOptInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && optInput.trim()) {
+                    onChange({ ...attr, options: [...(attr.options || []), optInput.trim()] })
+                    setOptInput('')
+                    e.preventDefault()
+                  }
+                }}
+                className="h-6 flex-1 rounded border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+              />
+              <button
+                onClick={() => {
+                  if (optInput.trim()) {
+                    onChange({ ...attr, options: [...(attr.options || []), optInput.trim()] })
+                    setOptInput('')
+                  }
+                }}
+                className="px-2 text-xs bg-muted rounded border border-input hover:bg-muted/80"
+              >+</button>
+            </div>
           </div>
+        ) : (
+          <span className="text-xs text-muted-foreground italic">—</span>
         )}
       </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <Button onClick={() => onSave(form)} disabled={saving || !form.name.trim()}>
-          {saving ? <Spinner className="h-4 w-4 mr-1" /> : <Check size={14} className="mr-1" />}
-          Save Category
-        </Button>
-        <Button variant="outline" onClick={onCancel}>Cancel</Button>
+      {/* Required + In Report */}
+      <div className="col-span-1 flex flex-col gap-1 pt-1">
+        <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={attr.required}
+            onChange={e => onChange({ ...attr, required: e.target.checked })} className="w-3 h-3" />
+          Reqd
+        </label>
+        <label className="flex items-center gap-1 text-[10px] text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={attr.showInReport}
+            onChange={e => onChange({ ...attr, showInReport: e.target.checked })} className="w-3 h-3" />
+          Report
+        </label>
+      </div>
+
+      {/* Delete attr */}
+      <div className="col-span-1 flex justify-center pt-1">
+        <button onClick={onDelete} className="text-muted-foreground hover:text-destructive"><X size={13} /></button>
       </div>
     </div>
   )
 }
 
-// ─── Category Tree Node ───────────────────────────────────────────────────────
+// ─── Category Form (Create + Edit) ────────────────────────────────────────────
 
-function CategoryNode({
-  cat,
-  allCats,
-  depth,
-  onEdit,
-  onAddChild,
-  onDelete,
-}: {
-  cat: Category
-  allCats: Category[]
-  depth: number
-  onEdit: (c: Category) => void
-  onAddChild: (parentId: string) => void
-  onDelete: (c: Category) => void
-}) {
-  const [expanded, setExpanded] = useState(true)
-  const hasChildren = cat.children && cat.children.length > 0
-  const levelColor = LEVEL_COLORS[depth] || LEVEL_COLORS[0]
+interface FormState {
+  name: string
+  description: string
+  color: string
+  trackBatch: boolean
+  trackExpiry: boolean
+  attributes: Attribute[]
+}
+
+interface CategoryFormProps {
+  // null = create new, object = edit existing
+  editing: Category | null
+  // For create: which parent? null = L1 root
+  parentCategory: Category | null
+  allFlat: Category[]   // flat list for "move to parent" dropdown
+  onSave: () => void
+  onCancel: () => void
+}
+
+function CategoryForm({ editing, parentCategory, allFlat, onSave, onCancel }: CategoryFormProps) {
+  const qc = useQueryClient()
+  const isEdit = !!editing
+
+  const level = editing
+    ? editing.level
+    : parentCategory
+      ? parentCategory.level + 1
+      : 1
+
+  const [form, setForm] = useState<FormState>({
+    name: editing?.name || '',
+    description: editing?.description || '',
+    color: editing?.color || '',
+    trackBatch: editing?.trackBatch || false,
+    trackExpiry: editing?.trackExpiry || false,
+    attributes: editing?.attributes || [],
+  })
+  const [error, setError] = useState('')
+
+  // Inherited attributes from parent chain (readonly)
+  const parentAttrs = parentCategory?.attributes || []
+
+  const addAttr = () => setForm(f => ({ ...f, attributes: [...f.attributes, { ...BLANK_ATTR }] }))
+  const updateAttr = (i: number, a: Attribute) => setForm(f => ({ ...f, attributes: f.attributes.map((x, idx) => idx === i ? a : x) }))
+  const deleteAttr = (i: number) => setForm(f => ({ ...f, attributes: f.attributes.filter((_, idx) => idx !== i) }))
+
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      const payload = {
+        name: form.name.trim(),
+        description: form.description || null,
+        color: form.color || null,
+        trackBatch: form.trackBatch,
+        trackExpiry: form.trackExpiry,
+        attributes: form.attributes.filter(a => a.name.trim() && a.label.trim()),
+        ...(isEdit ? {} : {
+          parentId: parentCategory?.id || null,
+          level,
+        }),
+      }
+      if (isEdit) {
+        await api.put(`/masters/item-categories/${editing!.id}`, payload)
+      } else {
+        await api.post('/masters/item-categories', payload)
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['item-categories'] })
+      onSave()
+    },
+    onError: (e) => setError(extractError(e)),
+  })
+
+  const levelStyle = LEVEL_STYLE[level - 1] || LEVEL_STYLE[2]
 
   return (
-    <div className={cn(depth > 0 && 'ml-6 border-l border-border pl-3')}>
-      <div className={cn(
-        'group flex items-center gap-2 px-3 py-2.5 rounded-lg border transition-all',
-        'hover:shadow-sm',
-        depth === 0 ? 'bg-card border-border' :
-        depth === 1 ? 'bg-muted/20 border-border/60' :
-        'bg-muted/10 border-border/40'
-      )}>
-        {/* Expand toggle */}
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className={cn('shrink-0 transition-colors', hasChildren ? 'text-muted-foreground hover:text-foreground' : 'opacity-0 pointer-events-none')}
-        >
-          {expanded
-            ? <ChevronDown size={14} />
-            : <ChevronRight size={14} />}
-        </button>
-
-        {/* Folder icon */}
-        <span className={cn('shrink-0', levelColor.text)}>
-          {hasChildren
-            ? <FolderOpen size={16} />
-            : <Folder size={15} className="opacity-70" />}
-        </span>
-
-        {/* Name + info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium truncate">{cat.name}</span>
-            <Badge variant="secondary" className={cn('text-xs py-0 px-1.5', levelColor.bg, levelColor.text, levelColor.border)}>
-              L{cat.level}
-            </Badge>
-            {cat.trackBatch && <Badge variant="outline" className="text-xs py-0 px-1.5">Batch</Badge>}
-            {cat.trackExpiry && <Badge variant="outline" className="text-xs py-0 px-1.5 text-orange-600">Expiry</Badge>}
-            {cat.attributes.length > 0 && (
-              <Badge variant="outline" className="text-xs py-0 px-1.5">
-                {cat.attributes.length} attr{cat.attributes.length > 1 ? 's' : ''}
-              </Badge>
-            )}
-          </div>
-          {cat.description && (
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{cat.description}</p>
+    <div className="form-section mb-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <span className={cn('text-xs px-2 py-1 rounded font-medium', levelStyle.badge)}>
+            {levelStyle.label}
+          </span>
+          {parentCategory && (
+            <span className="text-xs text-muted-foreground">
+              under <strong>{parentCategory.name}</strong>
+            </span>
           )}
         </div>
+        <button onClick={onCancel} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
+      </div>
 
-        {/* Stats */}
-        <div className="hidden sm:flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-          {cat._count.children > 0 && <span>{cat._count.children} sub</span>}
-          <span className={cn(cat._count.items > 0 ? 'text-foreground font-medium' : '')}>{cat._count.items} items</span>
-        </div>
+      {/* Basic info */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <Input
+          label="Category Name *"
+          placeholder={level === 1 ? "e.g. Men's Wear, Electronics, Medicines" : level === 2 ? 'e.g. Formal Shirts, Laptops' : 'e.g. White Formal, 15" Laptops'}
+          value={form.name}
+          onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+          autoFocus
+        />
+        <Input
+          label="Description"
+          placeholder="Optional short description"
+          value={form.description}
+          onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+        />
+      </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {cat.level < 3 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => onAddChild(cat.id)}
-              title="Add sub-category"
-            >
-              <Plus size={12} className="mr-1" />Sub
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => onEdit(cat)}
-            title="Edit"
-          >
-            <Edit size={13} />
-          </Button>
-          <SafeDeleteButton
-            onDelete={() => onDelete(cat)}
-            itemName={cat.name}
-            disabled={cat._count.items > 0 || cat._count.children > 0}
-            disabledReason={
-              cat._count.children > 0
-                ? `${cat._count.children} sub-categories exist`
-                : `${cat._count.items} items use this category`
-            }
-          />
+      <div className="flex gap-4 mb-4">
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.trackBatch}
+            onChange={e => setForm(f => ({ ...f, trackBatch: e.target.checked }))}
+            className="w-4 h-4" />
+          Track Batch No.
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={form.trackExpiry}
+            onChange={e => setForm(f => ({ ...f, trackExpiry: e.target.checked }))}
+            className="w-4 h-4" />
+          Track Expiry Date
+        </label>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">Color</label>
+          <input type="color" value={form.color || '#6366f1'}
+            onChange={e => setForm(f => ({ ...f, color: e.target.value }))}
+            className="w-8 h-8 rounded border border-input cursor-pointer" />
         </div>
       </div>
 
+      {/* Attributes section */}
+      <div className="border border-border rounded-lg overflow-hidden mb-4">
+        <div className="px-3 py-2.5 bg-muted/40 border-b border-border">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold">Item Attributes</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                These fields appear on items in <strong>{form.name || 'this category'}</strong>
+                {level < 3 && ' and all its sub-categories'}
+              </p>
+            </div>
+          </div>
+
+          {/* Inherited attrs notice */}
+          {parentAttrs.length > 0 && (
+            <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700">
+              <span className="font-medium">Inherited from parent:</span>{' '}
+              {parentAttrs.map(a => a.label).join(', ')} — these are automatically applied, no need to re-add.
+            </div>
+          )}
+        </div>
+
+        {/* Column headers */}
+        {form.attributes.length > 0 && (
+          <div className="bg-muted px-3 py-1.5 grid grid-cols-12 gap-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wide border-b border-border">
+            <div className="col-span-1" />
+            <div className="col-span-2">Field Name</div>
+            <div className="col-span-2">Label</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-3">Options (for dropdown)</div>
+            <div className="col-span-1">Flags</div>
+            <div className="col-span-1" />
+          </div>
+        )}
+
+        {form.attributes.map((attr, i) => (
+          <AttrRow
+            key={i}
+            attr={attr}
+            onChange={a => updateAttr(i, a)}
+            onDelete={() => deleteAttr(i)}
+          />
+        ))}
+
+        <div className="px-3 py-2 border-t border-border/30">
+          <button onClick={addAttr}
+            className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 font-medium">
+            <Plus size={12} /> Add Attribute
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-destructive mb-3">{error}</p>}
+
+      <div className="flex gap-2">
+        <Button onClick={() => {
+          if (!form.name.trim()) { setError('Category name is required'); return }
+          setError('')
+          saveMut.mutate()
+        }} loading={saveMut.isPending} size="sm">
+          <Check size={14} /> {isEdit ? 'Update Category' : 'Create Category'}
+        </Button>
+        <Button variant="outline" size="sm" onClick={onCancel}>Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Delete confirm (inline, no modal) ───────────────────────────────────────
+
+function DeleteCategoryButton({ cat, onDeleted }: { cat: Category; onDeleted: () => void }) {
+  const qc = useQueryClient()
+  const [confirm, setConfirm] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const canDelete = cat._count.items === 0 && cat._count.children === 0
+
+  if (!canDelete) {
+    const reason = cat._count.children > 0
+      ? `Has ${cat._count.children} sub-categor${cat._count.children > 1 ? 'ies' : 'y'} — delete them first`
+      : `${cat._count.items} item(s) use this category — reassign items first`
+    return (
+      <button title={reason} disabled className="opacity-30 cursor-not-allowed p-1 rounded">
+        <Trash2 size={13} className="text-muted-foreground" />
+      </button>
+    )
+  }
+
+  if (confirm) {
+    return (
+      <div className="flex items-center gap-1 bg-destructive/10 border border-destructive/20 rounded px-2 py-1">
+        <span className="text-[10px] text-destructive font-medium">Delete?</span>
+        <button onClick={async () => {
+          setLoading(true)
+          setError('')
+          try {
+            await api.delete(`/masters/item-categories/${cat.id}`)
+            qc.invalidateQueries({ queryKey: ['item-categories'] })
+            onDeleted()
+          } catch (e) {
+            setError(extractError(e))
+            setConfirm(false)
+          } finally {
+            setLoading(false)
+          }
+        }} disabled={loading}
+          className="text-destructive hover:text-destructive/80 font-medium text-[10px]">
+          {loading ? '...' : 'Yes'}
+        </button>
+        <button onClick={() => setConfirm(false)} className="text-muted-foreground hover:text-foreground text-[10px]">No</button>
+        {error && <span className="text-[10px] text-destructive">{error}</span>}
+      </div>
+    )
+  }
+
+  return (
+    <button onClick={() => setConfirm(true)} title="Delete category"
+      className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
+      <Trash2 size={13} />
+    </button>
+  )
+}
+
+// ─── Category Card ────────────────────────────────────────────────────────────
+
+function CategoryCard({
+  cat,
+  allFlat,
+  onEditDone,
+}: {
+  cat: Category
+  allFlat: Category[]
+  onEditDone: () => void
+}) {
+  const [expanded, setExpanded] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [addingChild, setAddingChild] = useState(false)
+
+  const levelStyle = LEVEL_STYLE[cat.level - 1] || LEVEL_STYLE[2]
+  const hasChildren = cat.children && cat.children.length > 0
+  const canAddChild = cat.level < 3
+
+  const attrs: Attribute[] = cat.attributes || []
+
+  if (editing) {
+    return (
+      <CategoryForm
+        editing={cat}
+        parentCategory={allFlat.find(c => c.id === cat.parentId) || null}
+        allFlat={allFlat}
+        onSave={() => { setEditing(false); onEditDone() }}
+        onCancel={() => setEditing(false)}
+      />
+    )
+  }
+
+  return (
+    <div className={cn('border rounded-xl overflow-hidden mb-2', levelStyle.border)}>
+      {/* Header row */}
+      <div className={cn('flex items-center gap-2 px-3 py-2.5', levelStyle.bg)}>
+        {/* Expand toggle */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="text-muted-foreground hover:text-foreground flex-shrink-0"
+        >
+          {hasChildren
+            ? (expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />)
+            : <span className="w-[15px]" />}
+        </button>
+
+        {/* Folder icon */}
+        {hasChildren
+          ? <FolderOpen size={15} className={levelStyle.text} />
+          : <Folder size={15} className={levelStyle.text} />}
+
+        {/* Name */}
+        <span className={cn('font-medium text-sm flex-1', levelStyle.text)}>{cat.name}</span>
+
+        {/* Attributes summary */}
+        {attrs.length > 0 && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <Tag size={11} className="text-muted-foreground" />
+            <span className="text-[10px] text-muted-foreground">
+              {attrs.map(a => a.label).join(', ')}
+            </span>
+          </div>
+        )}
+
+        {/* Counts */}
+        {cat._count.items > 0 && (
+          <Badge variant="secondary" className="text-[10px] flex-shrink-0">
+            <Package size={9} className="mr-0.5" />{cat._count.items} items
+          </Badge>
+        )}
+
+        {/* Batch/expiry badges */}
+        {cat.trackBatch && <Badge variant="outline" className="text-[9px] flex-shrink-0">Batch</Badge>}
+        {cat.trackExpiry && <Badge variant="outline" className="text-[9px] flex-shrink-0">Expiry</Badge>}
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ opacity: 1 }}>
+          {canAddChild && (
+            <button
+              onClick={() => setAddingChild(a => !a)}
+              title={`Add L${cat.level + 1} sub-category`}
+              className="p-1 rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
+              <Plus size={13} />
+            </button>
+          )}
+          <button
+            onClick={() => setEditing(true)}
+            title="Edit category"
+            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <Edit size={13} />
+          </button>
+          <DeleteCategoryButton cat={cat} onDeleted={onEditDone} />
+        </div>
+      </div>
+
+      {/* Add child form */}
+      {addingChild && (
+        <div className="px-3 pt-3 pb-1 bg-card border-t border-border">
+          <CategoryForm
+            editing={null}
+            parentCategory={cat}
+            allFlat={allFlat}
+            onSave={() => { setAddingChild(false); onEditDone() }}
+            onCancel={() => setAddingChild(false)}
+          />
+        </div>
+      )}
+
       {/* Children */}
-      {hasChildren && expanded && (
-        <div className="mt-1 space-y-1">
+      {expanded && hasChildren && (
+        <div className="pl-6 pr-2 py-2 bg-card border-t border-border/30 space-y-1">
           {cat.children.map(child => (
-            <CategoryNode
+            <CategoryCard
               key={child.id}
               cat={child}
-              allCats={allCats}
-              depth={depth + 1}
-              onEdit={onEdit}
-              onAddChild={onAddChild}
-              onDelete={onDelete}
+              allFlat={allFlat}
+              onEditDone={onEditDone}
             />
           ))}
         </div>
@@ -519,254 +547,91 @@ function CategoryNode({
   )
 }
 
-// ─── Template Picker ──────────────────────────────────────────────────────────
-
-function TemplatePicker({ onSelect, onClose }: { onSelect: (t: typeof PRESET_TEMPLATES[0]) => void; onClose: () => void }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="font-medium text-sm">Choose a Template</p>
-          <p className="text-xs text-muted-foreground">Pick a ready-made structure or build from scratch</p>
-        </div>
-        <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors">
-          <X size={16} />
-        </button>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        {PRESET_TEMPLATES.map(t => (
-          <button
-            key={t.name}
-            onClick={() => onSelect(t)}
-            className="text-left p-3 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-all group"
-          >
-            <p className="text-sm font-medium group-hover:text-primary transition-colors">{t.name}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{t.description}</p>
-            <div className="flex flex-wrap gap-1 mt-2">
-              {t.levels.map((l, i) => (
-                <span key={i} className={cn('text-xs px-1.5 py-0.5 rounded-full border',
-                  i === 0 ? 'bg-blue-50 border-blue-200 text-blue-700' :
-                  i === 1 ? 'bg-purple-50 border-purple-200 text-purple-700' :
-                  'bg-emerald-50 border-emerald-200 text-emerald-700'
-                )}>
-                  L{i+1}: {l.name}
-                </span>
-              ))}
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ItemCategoriesPage() {
   const qc = useQueryClient()
-  const [panel, setPanel] = useState<'none' | 'form' | 'templates'>('none')
-  const [editingCat, setEditingCat] = useState<Category | null>(null)
-  const [formInit, setFormInit] = useState<FormState>(blankForm())
-  const [err, setErr] = useState('')
+  const [showNewRoot, setShowNewRoot] = useState(false)
 
-  // Fetch tree
-  const { data: treeData, isLoading } = useQuery<Category[]>({
+  const { data: treeData = [], isLoading } = useQuery<Category[]>({
     queryKey: ['item-categories'],
     queryFn: () => api.get('/masters/item-categories').then(r => r.data.data),
   })
 
-  // Fetch flat (for parent dropdown)
-  const { data: flatData } = useQuery<Category[]>({
+  // Flat list for parent picker
+  const { data: flatData = [] } = useQuery<Category[]>({
     queryKey: ['item-categories', 'flat'],
     queryFn: () => api.get('/masters/item-categories?flat=1').then(r => r.data.data),
   })
 
-  const tree: Category[] = treeData || []
-  const flat: Category[] = flatData || []
-
-  const invalidate = () => {
+  const refresh = () => {
     qc.invalidateQueries({ queryKey: ['item-categories'] })
+    setShowNewRoot(false)
   }
 
-  const createMut = useMutation({
-    mutationFn: (data: FormState) => api.post('/masters/item-categories', data),
-    onSuccess: () => { invalidate(); closePanel() },
-    onError: e => setErr(extractError(e)),
-  })
-
-  const updateMut = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: Partial<FormState> }) =>
-      api.put(`/masters/item-categories/${id}`, data),
-    onSuccess: () => { invalidate(); closePanel() },
-    onError: e => setErr(extractError(e)),
-  })
-
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => api.delete(`/masters/item-categories/${id}`),
-    onSuccess: () => invalidate(),
-    onError: e => setErr(extractError(e)),
-  })
-
-  const openCreate = (parentId: string | null = null) => {
-    setEditingCat(null)
-    setFormInit(blankForm(parentId))
-    setErr('')
-    setPanel('form')
-  }
-
-  const openEdit = (cat: Category) => {
-    setEditingCat(cat)
-    setFormInit({
-      name: cat.name,
-      parentId: cat.parentId,
-      description: cat.description || '',
-      color: cat.color || '',
-      attributes: cat.attributes || [],
-      trackBatch: cat.trackBatch,
-      trackExpiry: cat.trackExpiry,
-    })
-    setErr('')
-    setPanel('form')
-  }
-
-  const closePanel = () => {
-    setPanel('none')
-    setEditingCat(null)
-    setErr('')
-  }
-
-  const handleSave = (f: FormState) => {
-    if (editingCat) {
-      updateMut.mutate({ id: editingCat.id, data: f })
-    } else {
-      createMut.mutate(f)
-    }
-  }
-
-  const handleDelete = (cat: Category) => {
-    deleteMut.mutate(cat.id)
-  }
-
-  const handleTemplate = (t: typeof PRESET_TEMPLATES[0]) => {
-    // Just open the form with the leaf attributes pre-filled as a starting point
-    setEditingCat(null)
-    setFormInit({
-      name: '',
-      parentId: null,
-      description: `${t.name} — ${t.description}`,
-      color: '',
-      attributes: t.leafAttributes,
-      trackBatch: t.trackBatch || false,
-      trackExpiry: t.trackExpiry || false,
-    })
-    setErr('')
-    setPanel('form')
-  }
-
-  const saving = createMut.isPending || updateMut.isPending
-
-  // Count total categories
-  const totalCount = flat.length
+  const totalCount = flatData.length
 
   return (
-    <div className="space-y-4">
+    <div>
       <PageHeader
         title="Item Categories"
-        subtitle={`${totalCount} categor${totalCount !== 1 ? 'ies' : 'y'} — up to 3 levels deep`}
-        action={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPanel(p => p === 'templates' ? 'none' : 'templates')}>
-              <Settings2 size={14} className="mr-1.5" /> Templates
-            </Button>
-            <Button size="sm" onClick={() => openCreate(null)}>
-              <Plus size={14} className="mr-1.5" /> New Category
-            </Button>
-          </div>
+        subtitle={`${totalCount} categor${totalCount !== 1 ? 'ies' : 'y'} — up to 3 levels`}
+        breadcrumbs={[{ label: 'Masters' }, { label: 'Item Categories' }]}
+        actions={
+          <Button size="sm" onClick={() => setShowNewRoot(s => !s)}>
+            <Plus size={14} /> New Category
+          </Button>
         }
       />
 
-      {/* How hierarchy works — info bar */}
-      <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs">
+      {/* Concept explainer */}
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800 flex gap-2">
         <Info size={14} className="shrink-0 mt-0.5" />
         <div>
-          <span className="font-medium">Hierarchy System: </span>
-          You can create up to <strong>3 levels</strong> of categories.
-          {' '}Example: <strong>Men's Wear</strong> (L1) → <strong>Formal Shirts</strong> (L2) → <strong>White Formal</strong> (L3).
-          {' '}Items are assigned to any level. Custom attributes (Color, Size, Batch No, etc.) can be set per category.
+          <span className="font-semibold">3-Level Hierarchy: </span>
+          <span className="font-medium text-blue-700">L1 Main</span>
+          <ChevronRight size={10} className="inline mx-1" />
+          <span className="font-medium text-purple-700">L2 Sub-Category</span>
+          <ChevronRight size={10} className="inline mx-1" />
+          <span className="font-medium text-emerald-700">L3 Sub-Sub-Category</span>
+          {' '}— Items are assigned to any level. Attributes set on a category automatically apply to all items in that category and its children.
+          {' '}Example: set <em>Color</em> & <em>Size</em> on "Formal Shirts" → all items under it get those fields.
         </div>
       </div>
 
-      {/* Side panel */}
-      {panel !== 'none' && (
-        <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
-          {panel === 'templates' ? (
-            <TemplatePicker
-              onSelect={handleTemplate}
-              onClose={() => setPanel('none')}
-            />
-          ) : (
-            <>
-              <h3 className="font-semibold text-sm mb-3">
-                {editingCat ? `Edit: ${editingCat.name}` : 'Create New Category'}
-              </h3>
-              {err && (
-                <div className="mb-3 p-2 rounded-lg bg-destructive/10 text-destructive text-xs border border-destructive/20">
-                  {err}
-                </div>
-              )}
-              <CategoryForm
-                initial={formInit}
-                allCats={flat}
-                parentCategory={formInit.parentId ? flat.find(c => c.id === formInit.parentId) || null : null}
-                onSave={handleSave}
-                onCancel={closePanel}
-                saving={saving}
-              />
-            </>
-          )}
-        </div>
+      {/* New root category form */}
+      {showNewRoot && (
+        <CategoryForm
+          editing={null}
+          parentCategory={null}
+          allFlat={flatData}
+          onSave={refresh}
+          onCancel={() => setShowNewRoot(false)}
+        />
       )}
 
-      {/* Tree */}
+      {/* Category tree */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Spinner className="h-6 w-6" />
-        </div>
-      ) : tree.length === 0 ? (
-        <div className="text-center py-16 border border-dashed border-border rounded-xl">
-          <FolderTree size={36} className="mx-auto text-muted-foreground mb-3" />
-          <p className="text-sm font-medium">No categories yet</p>
-          <p className="text-xs text-muted-foreground mt-1 mb-4">Create your first category or pick a template to get started</p>
-          <div className="flex gap-2 justify-center">
-            <Button variant="outline" size="sm" onClick={() => setPanel('templates')}>
-              <Settings2 size={13} className="mr-1" /> Use Template
-            </Button>
-            <Button size="sm" onClick={() => openCreate(null)}>
-              <Plus size={13} className="mr-1" /> Create Category
-            </Button>
-          </div>
+        <div className="flex justify-center py-16"><Spinner /></div>
+      ) : treeData.length === 0 && !showNewRoot ? (
+        <div className="text-center py-16 border-2 border-dashed border-border rounded-xl">
+          <Layers size={40} className="mx-auto text-muted-foreground mb-3" />
+          <h3 className="text-sm font-semibold mb-1">No categories yet</h3>
+          <p className="text-xs text-muted-foreground mb-4">
+            Create your first main category (L1) — e.g. Men's Wear, Electronics, Medicines
+          </p>
+          <Button size="sm" onClick={() => setShowNewRoot(true)}>
+            <Plus size={14} /> Create First Category
+          </Button>
         </div>
       ) : (
         <div className="space-y-2">
-          {/* Level legend */}
-          <div className="flex items-center gap-3 pb-1">
-            {LEVEL_COLORS.map((c, i) => (
-              <div key={i} className={cn('flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border', c.bg, c.border, c.text)}>
-                <span className={cn('w-2 h-2 rounded-full', c.dot)} />
-                Level {i + 1}
-              </div>
-            ))}
-          </div>
-
-          {tree.map(cat => (
-            <CategoryNode
+          {treeData.map(cat => (
+            <CategoryCard
               key={cat.id}
               cat={cat}
-              allCats={flat}
-              depth={0}
-              onEdit={openEdit}
-              onAddChild={parentId => openCreate(parentId)}
-              onDelete={handleDelete}
+              allFlat={flatData}
+              onEditDone={() => qc.invalidateQueries({ queryKey: ['item-categories'] })}
             />
           ))}
         </div>

@@ -46,7 +46,32 @@ mastersRouter.get('/parties', async (req: Request, res: Response) => {
 
   const where: any = { companyId: req.companyId }
   if (isActive === 'true') where.isActive = true
-  if (type) where.type = type
+
+  // Smart type filtering:
+  // - BOTH parties always appear in both CUSTOMER and VENDOR lists
+  // - If company has allowCustomerAsVendor/allowVendorAsCustomer enabled,
+  //   expand the type filter accordingly
+  if (type) {
+    const company = await prisma.company.findUnique({
+      where: { id: req.companyId },
+      select: { txnSettings: true },
+    })
+    let txnSettings: Record<string, any> = {}
+    try { txnSettings = company?.txnSettings ? JSON.parse(company.txnSettings) : {} } catch {}
+
+    if (type === 'CUSTOMER') {
+      const types = ['CUSTOMER', 'BOTH']
+      if (txnSettings.allowVendorAsCustomer) types.push('VENDOR')
+      where.type = { in: types }
+    } else if (type === 'VENDOR') {
+      const types = ['VENDOR', 'BOTH']
+      if (txnSettings.allowCustomerAsVendor) types.push('CUSTOMER')
+      where.type = { in: types }
+    } else {
+      where.type = type
+    }
+  }
+
   if (search) {
     where.OR = [
       { name: { contains: String(search), mode: 'insensitive' } },

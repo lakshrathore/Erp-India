@@ -98,10 +98,10 @@ resetRouter.post('/transactions', adminOnly, async (req: Request, res: Response)
 
     if (ids.length > 0) {
       await tx.voucherSettlement.deleteMany({
-        where: { OR: [{ voucherId: { in: ids } }, { againstVoucherId: { in: ids } }] },
+        where: { OR: [{ fromVoucherId: { in: ids } }, { againstVoucherId: { in: ids } }] },
       })
       await tx.voucherLink.deleteMany({
-        where: { OR: [{ voucherId: { in: ids } }, { linkedVoucherId: { in: ids } }] },
+        where: { OR: [{ parentId: { in: ids } }, { childId: { in: ids } }] },
       })
     }
 
@@ -253,10 +253,10 @@ resetRouter.post('/all-transactions', adminOnly, async (req: Request, res: Respo
 
       if (ids.length > 0) {
         await tx.voucherSettlement.deleteMany({
-          where: { OR: [{ voucherId: { in: ids } }, { againstVoucherId: { in: ids } }] },
+          where: { OR: [{ fromVoucherId: { in: ids } }, { againstVoucherId: { in: ids } }] },
         })
         await tx.voucherLink.deleteMany({
-          where: { OR: [{ voucherId: { in: ids } }, { linkedVoucherId: { in: ids } }] },
+          where: { OR: [{ parentId: { in: ids } }, { childId: { in: ids } }] },
         })
         await tx.inventoryBatch.deleteMany({ where: { sourceVoucherId: { in: ids } } })
       }

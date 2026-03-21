@@ -111,6 +111,89 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 )
 Input.displayName = 'Input'
 
+// ─── AmountInput ─────────────────────────────────────────────────────────────
+// Prevents double ₹ symbol issue from browser locale + placeholder conflict
+// Always use this for monetary input fields instead of <Input type="number" />
+
+export interface AmountInputProps {
+  label?: string | React.ReactNode
+  value?: number | string
+  onChange?: (value: number) => void
+  onBlur?: () => void
+  error?: string
+  placeholder?: string
+  className?: string
+  disabled?: boolean
+  required?: boolean
+  name?: string
+  min?: number
+  max?: number
+  id?: string
+}
+
+export const AmountInput = React.forwardRef<HTMLInputElement, AmountInputProps>(
+  ({ label, value, onChange, onBlur, error, placeholder, className, disabled, required, name, min = 0, max, id }, ref) => {
+    const inputId = id || (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined)
+    // Use text input with inputMode=decimal to prevent browser from adding currency symbols
+    const [display, setDisplay] = React.useState(value !== undefined && value !== '' && value !== 0 ? String(value) : '')
+
+    React.useEffect(() => {
+      if (value !== undefined && value !== '' && String(value) !== display) {
+        setDisplay(value === 0 ? '' : String(value))
+      }
+    }, [value])
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value.replace(/[^0-9.]/g, '')  // strip non-numeric
+      // Allow only one decimal point
+      const parts = raw.split('.')
+      const cleaned = parts.length > 2 ? parts[0] + '.' + parts.slice(1).join('') : raw
+      setDisplay(cleaned)
+      const num = parseFloat(cleaned)
+      if (!isNaN(num)) onChange?.(num)
+      else if (cleaned === '' || cleaned === '.') onChange?.(0)
+    }
+
+    return (
+      <div className="space-y-1.5">
+        {label && (
+          <label htmlFor={inputId} className="text-xs font-medium text-foreground">
+            {label}
+            {required && <span className="text-destructive ml-0.5">*</span>}
+          </label>
+        )}
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium select-none pointer-events-none">
+            ₹
+          </span>
+          <input
+            ref={ref}
+            id={inputId}
+            name={name}
+            type="text"
+            inputMode="decimal"
+            value={display}
+            onChange={handleChange}
+            onBlur={onBlur}
+            disabled={disabled}
+            placeholder={placeholder || '0.00'}
+            className={cn(
+              'flex h-9 w-full rounded-md border border-input bg-background pl-7 pr-3 py-2 text-sm text-right font-mono',
+              'placeholder:text-muted-foreground/40',
+              'focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
+              'disabled:cursor-not-allowed disabled:opacity-50',
+              error && 'border-destructive focus:ring-destructive',
+              className
+            )}
+          />
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+    )
+  }
+)
+AmountInput.displayName = 'AmountInput'
+
 // ─── Select ───────────────────────────────────────────────────────────────────
 
 export interface SelectOption { value: string; label: string; disabled?: boolean }

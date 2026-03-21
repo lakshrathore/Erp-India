@@ -267,7 +267,7 @@ export default function VoucherListPage({ voucherType, title, newPath, breadcrum
                     return (
                       <tr key={v.id}
                         className={`cursor-pointer ${isCancelled ? 'opacity-60' : ''}`}
-                        onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
+                        onClick={() => navigate(`${newPath.replace('/new', '')}/${v.voucherNumber}`)}>
                         <td>
                           <span className="font-mono text-xs font-semibold">{v.voucherNumber}</span>
                           {isCancelled && <div className="text-[10px] text-destructive">CANCELLED</div>}
@@ -297,11 +297,11 @@ export default function VoucherListPage({ voucherType, title, newPath, breadcrum
                         <td onClick={e => e.stopPropagation()}>
                           <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon-sm" title="View"
-                              onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}>
+                              onClick={() => navigate(`${newPath.replace('/new', '')}/${v.voucherNumber}`)}>
                               <Eye size={13} />
                             </Button>
                             <Button variant="ghost" size="icon-sm" title="Print"
-                              onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.id}`, '_blank')}>
+                              onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.voucherNumber}`, '_blank')}>
                               <Printer size={13} />
                             </Button>
                             {/* Cancel button — only for POSTED/DRAFT */}
@@ -359,12 +359,12 @@ export default function VoucherListPage({ voucherType, title, newPath, breadcrum
                   {/* Actions */}
                   <div className="flex items-center gap-2 pt-2 border-t border-border/50">
                     <button
-                      onClick={() => navigate(`${newPath.replace('/new', '')}/${v.id}`)}
+                      onClick={() => navigate(`${newPath.replace('/new', '')}/${v.voucherNumber}`)}
                       className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
                       <Eye size={12} /> View
                     </button>
                     <button
-                      onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.id}`, '_blank')}
+                      onClick={() => window.open(`/print/${voucherType.toLowerCase()}/${v.voucherNumber}`, '_blank')}
                       className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-muted hover:bg-muted/70 transition-colors">
                       <Printer size={12} /> Print
                     </button>

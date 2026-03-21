@@ -30,7 +30,11 @@ const TDSTCSPage         = lazy(() => import('./modules/gst/TDSTCSPage'))
 
 // Accounting
 const BankReconPage      = lazy(() => import('./modules/accounting/BankReconPage'))
-const SettlementPage     = lazy(() => import('./modules/accounting/VoucherSettlementPage'))
+const SettlementPage         = lazy(() => import('./modules/accounting/VoucherSettlementPage'))
+const CustomerReceiptPage     = lazy(() => import('./modules/accounting/CustomerReceiptVendorPayment').then(m => ({ default: m.CustomerReceiptPage })))
+const VendorPaymentPage       = lazy(() => import('./modules/accounting/CustomerReceiptVendorPayment').then(m => ({ default: m.VendorPaymentPage })))
+const CustomerReceiptListPage = lazy(() => import('./modules/accounting/CustomerReceiptVendorPayment').then(m => ({ default: m.CustomerReceiptListPage })))
+const VendorPaymentListPage   = lazy(() => import('./modules/accounting/CustomerReceiptVendorPayment').then(m => ({ default: m.VendorPaymentListPage })))
 
 // Payroll
 const ProcessPayroll     = lazy(() => import('./modules/payroll/ProcessPayrollPage'))
@@ -172,6 +176,12 @@ export default function App() {
               <Route path="accounting/ledger-statement" element={<LS n="LedgerStatementPage" />} />
               <Route path="accounting/bank-recon"       element={<BankReconPage />} />
               <Route path="accounting/settlements"      element={<SettlementPage />} />
+              <Route path="accounting/customer-receipt"      element={<CustomerReceiptListPage />} />
+              <Route path="accounting/customer-receipt/new" element={<CustomerReceiptPage />} />
+              <Route path="accounting/customer-receipt/:id" element={<VoucherDetail />} />
+              <Route path="accounting/vendor-payment"       element={<VendorPaymentListPage />} />
+              <Route path="accounting/vendor-payment/new"   element={<VendorPaymentPage />} />
+              <Route path="accounting/vendor-payment/:id"   element={<VoucherDetail />} />
 
               {/* GST */}
               <Route path="gst/gstr1"  element={<GSTR1Page />} />

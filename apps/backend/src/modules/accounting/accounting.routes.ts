@@ -444,3 +444,256 @@ accountingRouter.post('/bank-recon/upload', async (req: Request, res: Response) 
 
   sendSuccess(res, { count: created.count }, `${created.count} entries uploaded`)
 })
+
+// ─── Day Book — all vouchers for a date ───────────────────────────────────────
+
+accountingRouter.get('/day-book', async (req: Request, res: Response) => {
+  const { date, from, to } = req.query
+  const fromDate = from ? new Date(String(from)) : date ? new Date(String(date)) : new Date()
+  const toDate = to ? new Date(String(to)) : date ? new Date(String(date)) : new Date()
+
+  // Set time to full day
+  fromDate.setHours(0, 0, 0, 0)
+  toDate.setHours(23, 59, 59, 999)
+
+  const entries = await prisma.journalEntry.findMany({
+    where: {
+      companyId: req.companyId,
+      date: { gte: fromDate, lte: toDate },
+    },
+    include: {
+      ledger: { select: { id: true, name: true, group: { select: { name: true, nature: true } } } },
+      voucher: {
+        select: {
+          id: true, voucherType: true, voucherNumber: true,
+          narration: true, date: true, grandTotal: true,
+          party: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: [{ date: 'asc' }, { voucher: { voucherNumber: 'asc' } }],
+  })
+
+  // Group by voucher
+  const voucherMap = new Map<string, any>()
+  for (const e of entries) {
+    const vid = e.voucherId
+    if (!voucherMap.has(vid)) {
+      voucherMap.set(vid, {
+        voucherId: vid,
+        voucherType: e.voucher?.voucherType,
+        voucherNumber: e.voucher?.voucherNumber,
+        date: e.voucher?.date || e.date,
+        party: e.voucher?.party?.name,
+        narration: e.voucher?.narration,
+        grandTotal: Number(e.voucher?.grandTotal || 0),
+        entries: [],
+        totalDebit: 0,
+        totalCredit: 0,
+      })
+    }
+    const v = voucherMap.get(vid)
+    v.entries.push({
+      ledgerName: e.ledger.name,
+      groupName: e.ledger.group.name,
+      nature: e.ledger.group.nature,
+      debit: Number(e.debit),
+      credit: Number(e.credit),
+      narration: e.narration,
+    })
+    v.totalDebit += Number(e.debit)
+    v.totalCredit += Number(e.credit)
+  }
+
+  const vouchers = Array.from(voucherMap.values())
+  const grandTotals = {
+    debit: vouchers.reduce((s, v) => s + v.totalDebit, 0),
+    credit: vouchers.reduce((s, v) => s + v.totalCredit, 0),
+    count: vouchers.length,
+  }
+
+  sendSuccess(res, { vouchers, grandTotals, fromDate, toDate })
+})
+
+// ─── Cash Book — journal entries for cash-group ledgers ──────────────────────
+
+accountingRouter.get('/cash-book', async (req: Request, res: Response) => {
+  const { ledgerId, from, to } = req.query
+  const fromDate = from ? new Date(String(from)) : new Date(new Date().getFullYear(), 3, 1)
+  const toDate = to ? new Date(String(to)) : new Date()
+
+  // If specific ledger provided, use it; otherwise get all cash ledgers
+  let ledgerIds: string[] = []
+  if (ledgerId) {
+    ledgerIds = [String(ledgerId)]
+  } else {
+    const cashLedgers = await prisma.ledger.findMany({
+      where: {
+        companyId: req.companyId,
+        isActive: true,
+        group: { name: 'Cash-in-Hand' },
+      },
+      select: { id: true, name: true },
+    })
+    ledgerIds = cashLedgers.map(l => l.id)
+  }
+
+  if (ledgerIds.length === 0) {
+    return sendSuccess(res, { ledgers: [], statement: [], totalDebit: 0, totalCredit: 0 })
+  }
+
+  const results = []
+  for (const lid of ledgerIds) {
+    const ledger = await prisma.ledger.findUnique({
+      where: { id: lid },
+      include: { group: true },
+    })
+    if (!ledger) continue
+
+    const entries = await prisma.journalEntry.findMany({
+      where: { ledgerId: lid, date: { gte: fromDate, lte: toDate } },
+      include: {
+        voucher: {
+          select: { voucherType: true, voucherNumber: true, narration: true, party: { select: { name: true } } },
+        },
+      },
+      orderBy: { date: 'asc' },
+    })
+
+    const priorEntries = await prisma.journalEntry.aggregate({
+      where: { ledgerId: lid, date: { lt: fromDate } },
+      _sum: { debit: true, credit: true },
+    })
+
+    const opening = Number(ledger.openingBalance)
+    const openingType = ledger.openingType
+    const priorDr = Number(priorEntries._sum.debit || 0)
+    const priorCr = Number(priorEntries._sum.credit || 0)
+
+    let runningBal = openingType === 'Dr'
+      ? opening + priorDr - priorCr
+      : opening + priorCr - priorDr
+
+    const statement = entries.map(e => {
+      const dr = Number(e.debit); const cr = Number(e.credit)
+      runningBal += dr - cr
+      return {
+        date: e.date,
+        voucherType: e.voucher?.voucherType,
+        voucherNumber: e.voucher?.voucherNumber,
+        party: e.voucher?.party?.name,
+        narration: e.voucher?.narration || e.narration,
+        debit: dr || null, credit: cr || null,
+        balance: Math.abs(runningBal),
+        balanceType: runningBal >= 0 ? 'Dr' : 'Cr',
+      }
+    })
+
+    results.push({
+      ledger: { id: ledger.id, name: ledger.name, groupName: ledger.group.name },
+      openingBalance: Math.abs(opening + priorDr - priorCr),
+      openingType,
+      statement,
+      closingBalance: Math.abs(runningBal),
+      closingType: runningBal >= 0 ? 'Dr' : 'Cr',
+      totalDebit: entries.reduce((s, e) => s + Number(e.debit), 0),
+      totalCredit: entries.reduce((s, e) => s + Number(e.credit), 0),
+    })
+  }
+
+  sendSuccess(res, results.length === 1 ? results[0] : { accounts: results })
+})
+
+// ─── Bank Book — journal entries for bank ledgers ─────────────────────────────
+
+accountingRouter.get('/bank-book', async (req: Request, res: Response) => {
+  const { ledgerId, from, to } = req.query
+  const fromDate = from ? new Date(String(from)) : new Date(new Date().getFullYear(), 3, 1)
+  const toDate = to ? new Date(String(to)) : new Date()
+
+  let ledgerIds: string[] = []
+  if (ledgerId) {
+    ledgerIds = [String(ledgerId)]
+  } else {
+    const bankLedgers = await prisma.ledger.findMany({
+      where: {
+        companyId: req.companyId,
+        isActive: true,
+        group: { name: 'Bank Accounts' },
+      },
+      select: { id: true, name: true },
+    })
+    ledgerIds = bankLedgers.map(l => l.id)
+  }
+
+  if (ledgerIds.length === 0) {
+    return sendSuccess(res, { accounts: [] })
+  }
+
+  const results = []
+  for (const lid of ledgerIds) {
+    const ledger = await prisma.ledger.findUnique({
+      where: { id: lid },
+      include: { group: true },
+    })
+    if (!ledger) continue
+
+    const entries = await prisma.journalEntry.findMany({
+      where: { ledgerId: lid, date: { gte: fromDate, lte: toDate } },
+      include: {
+        voucher: {
+          select: {
+            voucherType: true, voucherNumber: true, narration: true,
+            chequeNumber: true, chequeDate: true,
+            party: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { date: 'asc' },
+    })
+
+    const priorEntries = await prisma.journalEntry.aggregate({
+      where: { ledgerId: lid, date: { lt: fromDate } },
+      _sum: { debit: true, credit: true },
+    })
+
+    const opening = Number(ledger.openingBalance)
+    const openingType = ledger.openingType
+    const priorDr = Number(priorEntries._sum.debit || 0)
+    const priorCr = Number(priorEntries._sum.credit || 0)
+
+    let runningBal = openingType === 'Dr'
+      ? opening + priorDr - priorCr
+      : opening + priorCr - priorDr
+
+    const statement = entries.map(e => {
+      const dr = Number(e.debit); const cr = Number(e.credit)
+      runningBal += dr - cr
+      return {
+        date: e.date,
+        voucherType: e.voucher?.voucherType,
+        voucherNumber: e.voucher?.voucherNumber,
+        chequeNumber: e.voucher?.chequeNumber,
+        chequeDate: e.voucher?.chequeDate,
+        party: e.voucher?.party?.name,
+        narration: e.voucher?.narration || e.narration,
+        debit: dr || null, credit: cr || null,
+        balance: Math.abs(runningBal),
+        balanceType: runningBal >= 0 ? 'Dr' : 'Cr',
+      }
+    })
+
+    results.push({
+      ledger: { id: ledger.id, name: ledger.name, groupName: ledger.group.name },
+      openingBalance: Math.abs(opening + priorDr - priorCr),
+      openingType,
+      statement,
+      closingBalance: Math.abs(runningBal),
+      closingType: runningBal >= 0 ? 'Dr' : 'Cr',
+      totalDebit: entries.reduce((s, e) => s + Number(e.debit), 0),
+      totalCredit: entries.reduce((s, e) => s + Number(e.credit), 0),
+    })
+  }
+
+  sendSuccess(res, results.length === 1 ? results[0] : { accounts: results })
+})

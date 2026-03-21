@@ -123,6 +123,17 @@ payrollRouter.put('/employees/:id', async (req: Request, res: Response) => {
   sendSuccess(res, emp, 'Employee updated')
 })
 
+payrollRouter.delete('/employees/:id', async (req: Request, res: Response) => {
+  const emp = await prisma.employee.findFirst({ where: { id: req.params.id, companyId: req.companyId } })
+  if (!emp) throw new NotFoundError('Employee')
+  // Soft delete — mark as INACTIVE with date of leaving
+  await prisma.employee.update({
+    where: { id: req.params.id },
+    data: { status: 'INACTIVE', dol: new Date() }
+  })
+  sendSuccess(res, null, 'Employee deactivated')
+})
+
 // ─── SALARY STRUCTURES ────────────────────────────────────────────────────────
 payrollRouter.get('/salary-structures', async (req: Request, res: Response) => {
   const s = await prisma.salaryStructure.findMany({ where: { companyId: req.companyId, isActive: true }, include: { _count: { select: { employees: true } } } })
@@ -134,6 +145,21 @@ payrollRouter.post('/salary-structures', async (req: Request, res: Response) => 
   if (!body.success) throw new BadRequestError(body.error.errors[0].message)
   const structure = await prisma.salaryStructure.create({ data: { ...body.data, companyId: req.companyId } })
   sendSuccess(res, structure, 'Salary structure created', 201)
+})
+
+payrollRouter.put('/salary-structures/:id', async (req: Request, res: Response) => {
+  const body = z.object({ name: z.string().min(2).optional(), components: z.array(z.any()).optional(), isActive: z.boolean().optional() }).safeParse(req.body)
+  if (!body.success) throw new BadRequestError(body.error.errors[0].message)
+  const updated = await prisma.salaryStructure.update({ where: { id: req.params.id }, data: body.data })
+  sendSuccess(res, updated, 'Salary structure updated')
+})
+
+payrollRouter.delete('/salary-structures/:id', async (req: Request, res: Response) => {
+  // Soft delete — mark inactive
+  const inUse = await prisma.employee.count({ where: { salaryStructureId: req.params.id } })
+  if (inUse > 0) throw new BadRequestError(`Cannot delete — ${inUse} employee(s) use this structure. Change their structure first.`)
+  await prisma.salaryStructure.update({ where: { id: req.params.id }, data: { isActive: false } })
+  sendSuccess(res, null, 'Salary structure deleted')
 })
 
 // ─── DEPARTMENTS & DESIGNATIONS ───────────────────────────────────────────────
@@ -209,6 +235,34 @@ payrollRouter.put('/leave-applications/:id', async (req: Request, res: Response)
   const { status, remarks } = req.body
   const app = await prisma.leaveApplication.update({ where: { id: req.params.id }, data: { status, approvedBy: req.user.userId, approvedAt: new Date(), remarks } })
   sendSuccess(res, app, 'Leave updated')
+})
+
+payrollRouter.get('/leave-balance/:employeeId', async (req: Request, res: Response) => {
+  const { employeeId } = req.params
+  const balances = await prisma.leaveBalance.findMany({
+    where: { employeeId },
+  })
+  const leaveApps = await prisma.leaveApplication.findMany({
+    where: { employeeId, status: 'APPROVED' },
+    select: { leaveType: true, days: true },
+  })
+  // Aggregate consumed per type
+  const consumed: Record<string, number> = {}
+  for (const app of leaveApps) {
+    consumed[app.leaveType] = (consumed[app.leaveType] || 0) + Number(app.days)
+  }
+  sendSuccess(res, { balances, consumed })
+})
+
+payrollRouter.put('/leave-balance', async (req: Request, res: Response) => {
+  const { employeeId, leaveType, allocated } = req.body
+  if (!employeeId || !leaveType) throw new BadRequestError('employeeId and leaveType required')
+  const balance = await prisma.leaveBalance.upsert({
+    where: { employeeId_leaveType: { employeeId, leaveType } },
+    create: { employeeId, leaveType, allocated: Number(allocated), used: 0 },
+    update: { allocated: Number(allocated) },
+  })
+  sendSuccess(res, balance, 'Leave balance updated')
 })
 
 // ─── PAYROLL PROCESSING ───────────────────────────────────────────────────────

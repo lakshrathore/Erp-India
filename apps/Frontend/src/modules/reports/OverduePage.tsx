@@ -25,7 +25,6 @@ export default function OverdueReportPage() {
     queryFn: async () => {
       const { data } = await api.get('/billing/outstanding', {
         params: { type, partyId: partyId || undefined },
-    enabled: !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
       })
       return data.data
     },
@@ -34,11 +33,12 @@ export default function OverdueReportPage() {
   const vouchers: any[] = data?.vouchers || []
   const today = new Date()
 
-  // Bucket assignment
+  // Bucket assignment - use overdueBy (overdue days past credit period) from API
   const withAging = vouchers.map(v => {
-    const days = Math.floor((today.getTime() - new Date(v.date).getTime()) / 86400000)
-    const bucket = AGING_BUCKETS.find(b => days >= b.min && days <= b.max) || AGING_BUCKETS[3]
-    return { ...v, daysElapsed: days, bucket }
+    const overdueBy = Number(v.overdueBy ?? 0)
+    const daysElapsed = Number(v.daysElapsed ?? 0)
+    const bucket = AGING_BUCKETS.find(b => overdueBy >= b.min && overdueBy <= b.max) || AGING_BUCKETS[3]
+    return { ...v, daysElapsed, overdueBy, bucket }
   })
 
   // Bucket summaries

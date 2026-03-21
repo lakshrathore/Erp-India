@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../stores/auth.store'
 import { StatCard, Card, CardHeader, CardTitle, CardContent, Badge, Button, Spinner } from '../../components/ui'
@@ -24,7 +24,17 @@ const V_BADGE: Record<string, any> = {
   PAYMENT: 'destructive', JOURNAL: 'default', CONTRA: 'secondary',
 }
 
+const VOUCHER_PATH: Record<string, string> = {
+  SALE: '/billing/sale', PURCHASE: '/billing/purchase',
+  CREDIT_NOTE: '/billing/credit-note', DEBIT_NOTE: '/billing/debit-note',
+  SALE_CHALLAN: '/billing/sale-challan', PURCHASE_ORDER: '/billing/purchase-order',
+  PURCHASE_CHALLAN: '/billing/purchase-challan', PRODUCTION: '/billing/production',
+  RECEIPT: '/accounting/receipt', PAYMENT: '/accounting/payment',
+  CONTRA: '/accounting/contra', JOURNAL: '/accounting/journal',
+}
+
 export default function DashboardPage() {
+  const navigate = useNavigate()
   const { user, activeCompany, activeFY } = useAuthStore()
   const today = dayjs()
 
@@ -242,10 +252,11 @@ export default function DashboardPage() {
               </thead>
               <tbody>
                 {recentVouchers.map((v: any) => (
-                  <tr key={v.id}>
+                  <tr key={v.id} className="cursor-pointer hover:bg-muted/30 transition-colors"
+                    onClick={() => { const path = VOUCHER_PATH[v.voucherType]; if (path) navigate(`${path}/${v.voucherNumber}`) }}>
                     <td>
                       <Badge variant={V_BADGE[v.voucherType] || 'default'} className="text-[10px] mb-1 block w-fit">{v.voucherType}</Badge>
-                      <span className="font-mono text-xs text-muted-foreground">{v.voucherNumber}</span>
+                      <span className="font-mono text-xs font-medium text-primary">{v.voucherNumber}</span>
                     </td>
                     <td className="text-sm whitespace-nowrap">{formatDate(v.date)}</td>
                     <td className="text-sm truncate max-w-[160px]">{v.party?.name || '—'}</td>

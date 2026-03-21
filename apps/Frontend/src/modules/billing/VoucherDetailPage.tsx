@@ -26,7 +26,7 @@ const VOUCHER_LIST_PATH: Record<string, string> = {
   CREDIT_NOTE: '/billing/credit-note', DEBIT_NOTE: '/billing/debit-note',
   SALE_CHALLAN: '/billing/sale-challan', PURCHASE_ORDER: '/billing/purchase-order',
   PURCHASE_CHALLAN: '/billing/purchase-challan', PRODUCTION: '/billing/production',
-  RECEIPT: '/accounting/receipts', PAYMENT: '/accounting/payments',
+  RECEIPT: '/accounting/receipt', PAYMENT: '/accounting/payment',
   CONTRA: '/accounting/contra', JOURNAL: '/accounting/journal',
 }
 
@@ -45,7 +45,7 @@ export default function VoucherDetailPage() {
       const { data } = await api.get(`/billing/vouchers/${id}`)
       return data.data
     },
-    enabled: !!id && !!JSON.parse(localStorage.getItem('erp-auth') || '{}')?.state?.activeCompany?.companyId,
+    enabled: !!id,
   })
 
   const { data: journal } = useQuery({
@@ -195,7 +195,7 @@ export default function VoucherDetailPage() {
           {voucher.party && (
             <div className="bg-card border border-border rounded-xl p-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                {['SALE', 'CREDIT_NOTE', 'SALE_CHALLAN'].includes(voucher.voucherType) ? 'Bill To (Customer)' : 'Vendor'}
+                {['SALE', 'CREDIT_NOTE', 'SALE_CHALLAN'].includes(voucher.voucherType) ? 'Bill To (Customer)' : ['RECEIPT'].includes(voucher.voucherType) ? 'Received From' : ['PAYMENT'].includes(voucher.voucherType) ? 'Paid To' : 'Party'}
               </p>
               <p className="font-bold">{voucher.party.name}</p>
               {voucher.party.gstin && (
@@ -207,7 +207,67 @@ export default function VoucherDetailPage() {
             </div>
           )}
 
-          {/* Items table */}
+          {/* Accounting Ledger Entries — for RECEIPT/PAYMENT/CONTRA/JOURNAL */}
+          {['RECEIPT', 'PAYMENT', 'CONTRA', 'JOURNAL'].includes(voucher.voucherType) && (
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-border bg-muted/30 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Ledger Entries</h3>
+                {voucher.paymentMode && (
+                  <Badge variant="secondary" className="text-xs">{voucher.paymentMode}</Badge>
+                )}
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/20 border-b border-border">
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Account</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-blue-700">Debit (₹)</th>
+                    <th className="px-4 py-2.5 text-right text-xs font-medium text-orange-700">Credit (₹)</th>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground">Narration</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(voucher.ledgerEntries || []).map((le: any, i: number) => (
+                    <tr key={le.id || i} className="border-t border-border/30">
+                      <td className="px-4 py-2.5 font-medium">{le.ledger?.name || '—'}</td>
+                      <td className="px-4 py-2.5 text-right font-mono">
+                        {Number(le.debit) > 0 ? <span className="text-blue-700">{formatINR(le.debit)}</span> : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right font-mono">
+                        {Number(le.credit) > 0 ? <span className="text-orange-700">{formatINR(le.credit)}</span> : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{le.narration || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/30">
+                    <td className="px-4 py-2.5 font-semibold text-sm">Total</td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-blue-700">
+                      {formatINR((voucher.ledgerEntries || []).reduce((s: number, e: any) => s + Number(e.debit || 0), 0))}
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono font-semibold text-orange-700">
+                      {formatINR((voucher.ledgerEntries || []).reduce((s: number, e: any) => s + Number(e.credit || 0), 0))}
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
+              {/* Cheque details */}
+              {voucher.chequeNumber && (
+                <div className="px-4 py-3 border-t border-border bg-muted/10 flex items-center gap-4 text-xs">
+                  <span className="text-muted-foreground">Cheque No:</span>
+                  <span className="font-mono font-medium">{voucher.chequeNumber}</span>
+                  {voucher.chequeDate && <>
+                    <span className="text-muted-foreground">Date:</span>
+                    <span>{formatDate(voucher.chequeDate)}</span>
+                  </>}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Items table — for SALE/PURCHASE/etc. */}
+          {!['RECEIPT', 'PAYMENT', 'CONTRA', 'JOURNAL'].includes(voucher.voucherType) && (
           <div className="bg-card border border-border rounded-xl overflow-hidden">
             <div className="px-4 py-3 border-b border-border bg-muted/30">
               <h3 className="text-sm font-semibold">Items</h3>
@@ -298,6 +358,7 @@ export default function VoucherDetailPage() {
               })}
             </div>
           </div>
+          )} {/* end items conditional */}
 
           {/* Narration */}
           {voucher.narration && (
@@ -327,7 +388,7 @@ export default function VoucherDetailPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {journal.map((j: any, i: number) => (
+                      {(journal?.entries || []).map((j: any, i: number) => (
                         <tr key={i} className="border-t border-border/30">
                           <td className="px-3 py-2">{j.ledger?.name || j.ledgerId}</td>
                           <td className="px-3 py-2 text-right font-mono">{Number(j.debit) > 0 ? formatINR(j.debit) : '—'}</td>

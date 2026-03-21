@@ -39,6 +39,9 @@ interface TxnSettings {
   posRequireCustomer: boolean
   posDefaultPaymentMode: string
   posShowStockQty: boolean
+  // Party settings
+  allowCustomerAsVendor: boolean   // Customer can also be used as Vendor in purchase
+  allowVendorAsCustomer: boolean   // Vendor can also be used as Customer in sale
 }
 
 const DEFAULTS: TxnSettings = {
@@ -68,6 +71,8 @@ const DEFAULTS: TxnSettings = {
   maxDiscount2Pct: 100,
   maxDiscount3Pct: 100,
   posRequireCustomer: false,
+  allowCustomerAsVendor: false,
+  allowVendorAsCustomer: false,
   posDefaultPaymentMode: 'CASH',
   posShowStockQty: true,
 }
@@ -232,6 +237,23 @@ export default function TransactionSettingsPage() {
               <option value="UPI">UPI</option>
               <option value="CARD">Card</option>
             </select>
+          </div>
+        </Section>
+
+        <Section title="Party Settings">
+          <Toggle
+            label="Allow Customer as Vendor"
+            k="allowCustomerAsVendor"
+            helperText="When ON: Customers can be selected as vendor in Purchase invoices and payments. Useful for businesses that buy from their own customers."
+          />
+          <Toggle
+            label="Allow Vendor as Customer"
+            k="allowVendorAsCustomer"
+            helperText="When ON: Vendors can be selected as customer in Sale invoices and receipts. Useful for businesses that sell to their own vendors."
+          />
+          <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+            <strong>How it works:</strong> Parties with type <em>BOTH</em> will always appear in both customer and vendor lists.
+            These toggles additionally allow CUSTOMER-type parties to appear in vendor lists and vice versa.
           </div>
         </Section>
       </div>

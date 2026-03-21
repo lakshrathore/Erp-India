@@ -720,22 +720,38 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
   }
 
   const onPost = async () => {
-    if (!savedId) {
-      const valid = await form.trigger()
-      if (!valid) return
-      await form.handleSubmit(onSaveDraft)()
-      await new Promise(r => setTimeout(r, 300))
-    }
+    // Validate form first
+    const valid = await form.trigger()
+    if (!valid) return
+
+    const values = form.getValues()
+    const errs = validateVoucher(values, voucherType)
+    if (errs.length > 0) { setValidationErrors(errs); return }
+    setValidationErrors([])
     setSaveError(''); setPosting(true)
+
     try {
-      const id = savedId || form.getValues('items')[0]?.itemId // fallback
-      if (!savedId) return
-      await api.post(`/billing/vouchers/${savedId}/post`)
+      let voucherId = savedId
+
+      // If not yet saved, create first
+      if (!voucherId) {
+        const { data } = await api.post('/billing/vouchers', buildPayload(values))
+        voucherId = data.data.id
+        setSavedId(voucherId)
+        setSavedNumber(data.data.voucherNumber)
+        qc.invalidateQueries({ queryKey: ['vouchers'] })
+      }
+
+      // Then post — in same try block, atomic
+      await api.post(`/billing/vouchers/${voucherId}/post`)
       setSavedStatus('POSTED')
       qc.invalidateQueries({ queryKey: ['vouchers'] })
       onSuccess?.()
-    } catch (e) { setSaveError(extractError(e)) }
-    finally { setPosting(false) }
+    } catch (e) {
+      setSaveError(extractError(e))
+    } finally {
+      setPosting(false)
+    }
   }
 
   const isPosted = savedStatus === 'POSTED'
@@ -767,10 +783,16 @@ export default function VoucherForm({ voucherType, title, initial, onSuccess }: 
           <Button variant="outline" onClick={() => navigate(-1)}><ArrowLeft size={15} /> Back</Button>
           {!isPosted && (
             <>
-              <Button variant="secondary" onClick={form.handleSubmit(onSaveDraft)} loading={saving}>
-                <Save size={15} /> Draft
+              <Button variant="secondary"
+                onClick={form.handleSubmit(onSaveDraft)}
+                loading={saving}
+                disabled={posting}>
+                <Save size={15} /> Save Draft
               </Button>
-              <Button onClick={onPost} loading={posting}>
+              <Button
+                onClick={onPost}
+                loading={posting}
+                disabled={saving}>
                 <Save size={15} /> Save & Post
               </Button>
             </>
